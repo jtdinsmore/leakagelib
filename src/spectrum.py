@@ -3,7 +3,6 @@ import pandas as pd
 from scipy.interpolate import interp1d
 from .settings import *
 
-PIXEL_SIZE = 2.6
 NO_K_PERP = False
 
 def analytical_mu_model():
@@ -62,34 +61,30 @@ class EnergyDependence:
     def lawrence_nn(use_nn):
         '''Get the energy dependence functions for sigma parallel and sigma perp for Neural Net data'''
         # Generated in vis/get-true-trends
-        # values = pd.read_csv(f"{DATA_DIRECTORY}/nn-energy-unc/lawrence-nn.csv")
-        # energies = np.array(values["ENERGY"])
-        # sigma_tots = np.array(values["UNC"])
         values = np.load(f"{LEAKAGE_DATA_DIRECTORY}/sigma-tot/sigma-tot.npy")
         energies = values[0]
-        sigma_tots = values[1]
-        errors = (sigma_tots * PIXEL_SIZE)**2
+        sigma_parallels = values[1]
+        sigma_perps = values[3]
+        kurts = values[5]
 
-        sigma_perp2 = (NN_SIGMA_PERP + (energies - 2) * NN_SIGMA_PERP_SLOPE)**2
-        sigma_parallel2 = errors - sigma_perp2
-        kurtosis4 = sigma_parallel2**2 * NN_KURTOSIS_RATIO**4
+        sigma_parallel2 = (NN_SIGMA_PARALLEL_SCALE * sigma_parallels)**2
+        sigma_perp2 = sigma_perps**2
+        kurtosis4 = (NN_KURT_SCALE * kurts)**4
 
         return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, use_nn)
     
     def lawrence_mom(use_nn):
         '''Get the energy dependence functions for sigma parallel and sigma perp for Moments data'''
-        # values = pd.read_csv(f"{DATA_DIRECTORY}/nn-energy-unc/lawrence-mom.csv")
-        # energies = np.array(values["ENERGY"])
-        # sigma_tots = np.array(values["UNC"])
         # Generated in vis/get-true-trends
         values = np.load(f"{LEAKAGE_DATA_DIRECTORY}/sigma-tot/sigma-tot.npy")
         energies = values[0]
-        sigma_tots = values[2]
-        errors = (sigma_tots * PIXEL_SIZE)**2
-        
-        sigma_perp2 = (MOM_SIGMA_PERP + (energies - 2) * MOM_SIGMA_PERP_SLOPE)**2
-        sigma_parallel2 = errors - sigma_perp2
-        kurtosis4 = sigma_parallel2**2 * MOM_KURTOSIS_RATIO**4
+        sigma_parallels = values[2]
+        sigma_perps = values[4]
+        kurts = values[6]
+
+        sigma_parallel2 = (MOM_SIGMA_PARALLEL_SCALE * sigma_parallels)**2
+        sigma_perp2 = sigma_perps**2
+        kurtosis4 = (MOM_KURT_SCALE * kurts)**4
 
         return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, use_nn)
     

@@ -2,16 +2,16 @@
 
 Written by Jack Dinsmore in December 2023
 
-This code predicts and corrects leakage patterns in the IXPE satellite using asymmetric PSFs. It is described in the published paper "Dinsmore, J. T. & Romani, R. W. 2024, The Astrophysical Journal, #TODO volume number" The citation for this software is # TODO Citation. If you use this software, please cite both.
+This code predicts and corrects leakage patterns in the IXPE satellite using asymmetric PSFs. It is described in the published paper "Dinsmore, J. T. & Romani, R. W. 2024, The Astrophysical Journal, #TODO volume number." If you use this software, please cite that paper and the DOI of this software.
 
 If you have questions, bug reports, or feature requests, please email Jack Dinsmore at jtd@stanford.edu.
 
 ## Installation
-1. Clone this repository to your computer.
+1. Clone this repository to your computer. For example,
 ```sh
 git clone https://github.com/jtdinsmore/leakagelib.git
 ```
-2. Change the `DATA_DIRECTORIES` in **src/settings.py** variable to point to where you store your IXPE data files. You can list multiple directories.
+2. Change the `DATA_DIRECTORIES` in **src/settings.py** variable to point to where you store your IXPE data files. You can list multiple directories. Alternatively, you can use the `IXPEData.load_all_detectors_with_path` function in the script to load all your data files, and feed in the directory to the data each time.
 
 3. Whenever you use LeakageLib in your code, add the repo you cloned to path:
 ```Python
@@ -29,6 +29,6 @@ import leakagelib
 
     - **example/extract.py** extracts true source polarization from synthetic observations of that nebula and compares them to the truth.
 
-- **data**: contains data used by the algorithm, including the sigma_tot measured from simulations and the sky-calibrated PSFs produced by (CITATION  #TODO)
+- **data**: contains data used by the algorithm, including the sigma_tot measured from simulations and the sky-calibrated PSFs produced by the paper accompanying this software package.
 
 - **src**: LeakageLib source code
