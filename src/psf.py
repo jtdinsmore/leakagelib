@@ -6,7 +6,7 @@ from .funcs import *
 from .settings import *
 from ixpeobssim.irf import load_psf
 
-GROUND_BLUR = 1#2.45# Arcsec
+GROUND_BLUR = 2#2.45# Arcsec
 OBSSIM_BLUR = 0#1.8# Arcsec
 
 class PSF:
