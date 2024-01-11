@@ -1,5 +1,7 @@
 # LeakageLib
 
+[![DOI](https://zenodo.org/badge/721341641.svg)](https://zenodo.org/doi/10.5281/zenodo.10483297)
+
 Written by Jack Dinsmore in December 2023
 
 This code predicts and corrects leakage patterns in the IXPE satellite using asymmetric PSFs. It is described in the published paper "Dinsmore, J. T. & Romani, R. W. 2024, The Astrophysical Journal, #TODO volume number." If you use this software, please cite that paper and the DOI of this software.
