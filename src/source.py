@@ -111,7 +111,7 @@ def _process_file(file_name, num_pixels, target_pixel_size, source_pixel_size, h
     return image, num_pixels, target_pixel_size
 
 class Source:
-    def load_file(file_name, use_nn, num_pixels=None, target_pixel_size=None, source_pixel_size=None):
+    def load_file(file_name, use_nn, num_pixels=None, target_pixel_size=None, source_pixel_size=None, hduis=[1]):
         '''Creates a Source object from file which contains a well-resolved prediction for where the source's flux is coming from. E.g. a Chandra image.
         
         # Arguments:
@@ -121,7 +121,7 @@ class Source:
             - `target_pixel_size`: size of the output image pixels in arcsec. If None, it is taken to be the same as source_pixel_size
             - `source_pixel_size`: size of the input image pixels in arcsec. If None, its value is obtained from the fits file header. 
         '''
-        image, num_pixels, target_pixel_size = _process_file(file_name, num_pixels, target_pixel_size, source_pixel_size)
+        image, num_pixels, target_pixel_size = _process_file(file_name, num_pixels, target_pixel_size, source_pixel_size, hduis)
         if len(image.shape) != 2:
             raise Exception("The source image must be dimension 2")
         assert(image.shape == (num_pixels, num_pixels))
