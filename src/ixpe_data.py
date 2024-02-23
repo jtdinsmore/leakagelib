@@ -201,6 +201,7 @@ class IXPEData:
         self.i = np.zeros(shape)
         self.q = np.zeros(shape)
         self.u = np.zeros(shape)
+        self.weights = np.zeros(shape)
         self.cov_inv = np.zeros((shape[0], shape[1], 2, 2))
 
         for x_index in range(self.pixels_per_row):
@@ -237,11 +238,13 @@ class IXPEData:
                     self.i[x_index,y_index] = 0#np.nan
                     self.q[x_index,y_index] = 0#np.nan
                     self.u[x_index,y_index] = 0#np.nan
+                    self.weights[x_index,y_index] = 0#np.nan
                     self.cov_inv[x_index,y_index] = np.nan
                 else:
                     self.i[x_index,y_index] = pixel_i
                     self.q[x_index,y_index] = np.sum(qs)
                     self.u[x_index,y_index] = np.sum(us)
+                    self.weights[x_index,y_index] = np.mean(weights[mask])
                     self.cov_inv[x_index,y_index] = pinvh(cov)
 
     def get_antirotation_matrix(self):

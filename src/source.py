@@ -344,3 +344,8 @@ class Source:
             u /= i
 
         return (i, q, u)
+    
+
+    def divide_by_mu(self, q, u, spectrum):
+        mu_100 = spectrum.get_avg_weight()
+        return q / mu_100, u / mu_100
