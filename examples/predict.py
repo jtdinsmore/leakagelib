@@ -6,8 +6,8 @@ sys.path.append("../..")
 import leakagelib
 import time
 
-SOURCE_SIZE = 32 # pixels # 41
-PIXEL_SIZE = 2.8 # arcsec # 4
+SOURCE_SIZE = 53 # pixels
+PIXEL_SIZE = 2.8 # arcsec
 VMAX = 0.5
 
 SPECTRUM = leakagelib.Spectrum.from_power_law_index(2)
@@ -39,12 +39,23 @@ if __name__ == "__main__":
         )
 
         start = time.time()
+        # Get the predicted detection maps for q and u
         i, q_norm, u_norm = source.compute_leakage(
             psf,                # Use the PSF that was just loaded
             SPECTRUM,           # Use an example power-law spectrum
             normalize=True     # Normalize the output q and u. Off by default
         )
         # print(f"Took {(time.time() - start) / SOURCE_SIZE**2 * 1000} s per 1000 pixels")
+
+        # OPTIONAL: Divide these maps by the detector modulation factor. After this division, the
+        # PD = sqrt(q_norm**2 + u_norm**2) is equal to the point source polarization for an
+        # aperture large enough that leakage effects can be neglected. Before the division, the maps
+        # predict the actual detected polarizations and are therefore lowered by the modulation
+        # factor mu.
+        #
+        # This division step is likely necessary if comparing with other tools. For comparison with
+        # unweighted IXPE data, it should not be done.
+        q_norm, u_norm = source.divide_by_mu(q_norm, u_norm, SPECTRUM)
 
         ci = axs[det+1,0].pcolormesh(source.pixel_centers, source.pixel_centers, np.log10(i))
         axs[det+1,1].pcolormesh(source.pixel_centers, source.pixel_centers, q_norm, vmax=VMAX, vmin=-VMAX, cmap="RdBu")
