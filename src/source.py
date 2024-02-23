@@ -289,7 +289,7 @@ class Source:
             self.d_uk_u[psf.det] = convolve(self.source * self.u_map, psf.d_uk, mode="same")
 
     def compute_leakage(self, psf, spectrum, energy_dependence=None, normalize=False):
-        '''Get the Q and U maps for this source (unnormalized by default), given the provided PSF and spectrum.
+        '''Get the Q and U maps for this source (unnormalized by default), given the provided PSF and spectrum. Note: these are _detection_ predictions, so you will have to divide by mu (use source.divide_by_mu) to compare to true polarizations
         ARGUMENTS:
         - psf: the psf for the detector to be used. Sky-calibrated PSFs recommended
         - spectrum: the spectrum of the data. Can be obtained with (IXPEData object).spectrum.
@@ -347,5 +347,6 @@ class Source:
     
 
     def divide_by_mu(self, q, u, spectrum):
+        '''Divide by the detector modulation factor to get the "true" Q and U images. You can pass in either normalized or unnormalized q and u. The spectrum is used to compute the average polarization weight.'''
         mu_100 = spectrum.get_avg_weight()
         return q / mu_100, u / mu_100
