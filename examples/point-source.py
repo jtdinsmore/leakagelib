@@ -1,6 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib as mpl
 import sys, os
 sys.path.append("../..")
 import leakagelib
@@ -21,7 +20,7 @@ if __name__ == "__main__":
 
     # Load the data
     ixpe_datas = leakagelib.IXPEData.load_all_detectors(source, "01002401")
-    ixpe_data = ixpe_datas[DETECTOR] # It's possible to load data for only one detector, but that's rarer so I'm loading all three and discarding all but the detector we want
+    ixpe_data = ixpe_datas[DETECTOR] # It's possible to load data for only one detector, but I'm loading all three and discarding all but the detector we want
 
     # Load the PSF
     psf = leakagelib.PSF.sky_cal(
