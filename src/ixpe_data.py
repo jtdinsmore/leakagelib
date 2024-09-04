@@ -176,7 +176,9 @@ class IXPEData:
             binned_counts[pi] += 1
             binned_weights[pi] += weight
 
-        self.spectrum = Spectrum(energies, binned_counts, binned_weights / np.maximum(binned_counts, 1))
+        averaged_weights = binned_weights / np.maximum(binned_counts, 1)
+
+        self.spectrum = Spectrum(energies, binned_counts, averaged_weights)
 
     def centroid_center(self):
         poses = np.array((self.evt_xs, self.evt_ys)).transpose()

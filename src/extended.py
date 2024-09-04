@@ -38,7 +38,7 @@ def fit_extended(source, psfs, spectrum, is_obs, qs_obs, us_obs, initial_source_
     detector_params = []
     mus = []
     for det in range(3):
-        params = energy_dependence.get_params(spectrum, True)
+        params = energy_dependence.get_params(spectrum)
         detector_params.append(params)
         mu = spectrum.get_avg_weight()
         mus.append(mu)
@@ -119,35 +119,33 @@ def fit_extended(source, psfs, spectrum, is_obs, qs_obs, us_obs, initial_source_
             leak_i, leak_q, leak_u = source.compute_leakage(psfs[det], spectrum, normalize=True)
             leak_i *= np.sum(source.source) / np.sum(leak_i) # This thing makes the analytic gradient incorrect but I don't think it matters because it ought to affect every pixel by about the same amount, effectively scaling the gradient rather than turning it and who cares about that.
 
-            mu_s_plus, mu_s_minus, mu_k_plus, mu_k_minus, mu_k_cross = params
-            
             delta_q = leak_q - qs_obs[det]
             delta_u = leak_u - us_obs[det]
 
             z += np.sum(delta_q**2 + delta_u**2)
 
             i0_qq = np.flip(
-                + mu * psfs[det].psf
-                + mu_s_plus * psfs[det].d_zs
-                + mu_k_plus * psfs[det].d_zk
-                + mu_k_cross * psfs[det].d_xk / 2
+                + params["mu"] * psfs[det].psf
+                + params["mu_sigma_plus"] * psfs[det].d_zs
+                + params["mu_k_plus"] * psfs[det].d_zk
+                + params["mu_k_cross"] * psfs[det].d_xk / 2
             )
             i0_uu = np.flip(
-                + mu * psfs[det].psf
-                + mu_s_plus * psfs[det].d_zs
-                + mu_k_plus * psfs[det].d_zk
-                - mu_k_cross * psfs[det].d_xk / 2
+                + params["mu"] * psfs[det].psf
+                + params["mu_sigma_plus"] * psfs[det].d_zs
+                + params["mu_k_plus"] * psfs[det].d_zk
+                - params["mu_k_cross"] * psfs[det].d_xk / 2
             )
             i0_qu = np.flip(
-                + mu_k_cross * psfs[det].d_yk / 2
+                + params["mu_k_cross"] * psfs[det].d_yk / 2
             )
             q0 = np.flip(
-                + mu_s_minus * psfs[det].d_qs
-                + mu_k_minus * psfs[det].d_qk
+                + params["mu_sigma_minus"] * psfs[det].d_qs
+                + params["mu_k_minus"] * psfs[det].d_qk
             )
             u0 = np.flip(
-                + mu_s_minus * psfs[det].d_us
-                + mu_k_minus * psfs[det].d_uk
+                + params["mu_sigma_minus"] * psfs[det].d_us
+                + params["mu_k_minus"] * psfs[det].d_uk
             )
 
             gradient[0] += (

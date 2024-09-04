@@ -298,11 +298,10 @@ class Source:
         '''
         if energy_dependence is None:
             energy_dependence = EnergyDependence.default(self.use_nn)
-        s_plus, s_minus, k_plus, k_minus, k_cross = energy_dependence.get_params(spectrum, False)
-        mu_s_plus, mu_s_minus, mu_k_plus, mu_k_minus, mu_k_cross = energy_dependence.get_params(spectrum, True)
+        params = energy_dependence.get_params(spectrum)
         mu = spectrum.get_avg_weight()
 
-        if WARN and s_minus < 0:
+        if WARN and params["sigma_minus"] < 0:
             print("WARNING: sigma perp should not be bigger than sigma parallel squared.")
 
         if not self.store_info or self.d_i_i[psf.det] is None:
@@ -314,26 +313,26 @@ class Source:
 
         i = (
             + self.d_i_i[psf.det]
-            + s_plus * self.d_zs_i[psf.det]
-            + k_plus * self.d_zk_i[psf.det] 
-            + mu_s_minus * (self.d_qs_q[psf.det] + self.d_us_u[psf.det]) / 2
-            + mu_k_minus * (self.d_qk_q[psf.det] + self.d_uk_u[psf.det]) / 2
+            + params["sigma_plus"] * self.d_zs_i[psf.det]
+            + params["k_plus"] * self.d_zk_i[psf.det] 
+            + params["mu_sigma_minus"] * (self.d_qs_q[psf.det] + self.d_us_u[psf.det]) / 2
+            + params["mu_k_minus"] * (self.d_qk_q[psf.det] + self.d_uk_u[psf.det]) / 2
         )
         q = (
-            + mu * self.d_i_q[psf.det]
-            + s_minus * self.d_qs_i[psf.det]
-            + k_minus * self.d_qk_i[psf.det]
-            + mu_s_plus * self.d_zs_q[psf.det]
-            + mu_k_plus * self.d_zk_q[psf.det]
-            + mu_k_cross * (self.d_xk_q[psf.det] + self.d_yk_u[psf.det]) / 2
+            + params["sigma_minus"] * self.d_qs_i[psf.det]
+            + params["k_minus"] * self.d_qk_i[psf.det]
+            + params["mu"] * self.d_i_q[psf.det]
+            + params["mu_sigma_plus"] * self.d_zs_q[psf.det]
+            + params["mu_k_plus"] * self.d_zk_q[psf.det]
+            + params["mu_k_cross"] * (self.d_xk_q[psf.det] + self.d_yk_u[psf.det]) / 2
         )
         u = (
-            + mu * self.d_i_u[psf.det]
-            + s_minus * self.d_us_i[psf.det]
-            + k_minus * self.d_uk_i[psf.det]
-            + mu_s_plus * self.d_zs_u[psf.det]
-            + mu_k_plus * self.d_zk_u[psf.det]
-            + mu_k_cross * (self.d_yk_q[psf.det] - self.d_xk_u[psf.det]) / 2
+            + params["sigma_minus"] * self.d_us_i[psf.det]
+            + params["k_minus"] * self.d_uk_i[psf.det]
+            + params["mu"] * self.d_i_u[psf.det]
+            + params["mu_sigma_plus"] * self.d_zs_u[psf.det]
+            + params["mu_k_plus"] * self.d_zk_u[psf.det]
+            + params["mu_k_cross"] * (self.d_yk_q[psf.det] - self.d_xk_u[psf.det]) / 2
         )
 
         q[np.isnan(q)] = 0

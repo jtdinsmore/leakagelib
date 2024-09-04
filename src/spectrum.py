@@ -2,64 +2,86 @@ import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
 from .settings import *
-
-NO_K_PERP = False
-
-def analytical_mu_model():
-    '''Weights generally increase with energy, so here we approximate weights as depending quadratically on energy for demonstration purposes. In reality one should either simulate an IXPE detection with weights or use the event weights from a real detection.'''
-    mu_energies = np.linspace(1, 10, 100)
-    mu_val = 0.75 * (1 - (1 - mu_energies / 8)**2)
-    return interp1d(mu_energies, mu_val)
+import modulation
 
 class Spectrum:
+    def __init__(self, bin_centers, counts, weights):
+        """Returns the spectrum object, which contains information as to the distribution of counts and weights as functions of energy in a given data set.
+        # Arguments
+            * `bin_centers`: Centers of the energy bins of the spectrum
+            * `counts`: Number of counts in each energy bin
+            * `weights`: Average value of the weight in each energy bin, or `None` if the image is unweighted. """
+        self.bin_centers = bin_centers
+        self.counts = counts
+        if weights is None:
+            weights = np.ones_like(counts)
+        self.counts *= weights
+        self.counts /= np.sum(self.counts)
+
     def from_power_law_index(pl_index):
-        '''Load the spectrum from a power law. Demonstration purposes only. In practice, use your own simulation for an IXPE observation of a power-law source.'''
+        '''Load the spectrum assuming power law-distributed 2-8 keV counts (not the same a power law-distributed source, because this function doesn't simulate the detector ARF). Unweighted. Useful for demonstration purposes only. In practice, use your own simulation for an IXPE observation.'''
         values = pd.read_csv(f"{LEAKAGE_DATA_DIRECTORY}/effective-area/ixpe-eff-area.csv")
         energies = np.array(values["ENERGY"])
         areas = np.array(values["AREA"])
         interpolator = interp1d(energies, areas, bounds_error=False)
         energies = np.arange(2, 8, 0.04)
         counts = interpolator(energies) * energies**(-pl_index)
-        mus = analytical_mu_model()(energies)
-        return Spectrum(energies, counts, mus)
-        
-    def __init__(self, bin_centers, counts, mus):
-        self.bin_centers = bin_centers
-        self.counts = counts
-        self.mus = mus
+        return Spectrum(energies, counts, None)
     
-    def get_fracs(self, weight):
+    def weighted_average(self, array):
         '''Get the event fractions in each energy bin'''
-        if weight:
-            return (self.bin_centers, self.mus * self.counts / np.sum(self.counts))
-        else:
-            return (self.bin_centers, self.counts / np.sum(self.counts))
-
-    def get_avg_weight(self):
-        '''Get the average sigma plus and sigma minus for a given source.'''
-        bins, fracs = self.get_fracs(True)
-        return np.sum(fracs)
+        return np.sum(self.counts * array)
+    
+    def sample_from_interpolator(self, interp):
+        return interp(self.bin_centers)
     
     def save(self, f):
         '''Save to a file'''
-        np.save(f, [self.bin_centers, self.counts, self.mus])
+        np.save(f, [self.bin_centers, self.counts])
 
     def load(f):
         '''Load from a file'''
-        bin_centers, counts, mus = np.load(f)
-        return Spectrum(bin_centers, counts, mus)
+        bin_centers, counts = np.load(f)
+        return Spectrum(bin_centers, counts, None)
+
+    def get_avg_one_over_mu(self, use_nn):
+        '''Get the average of 1 over the modulation factor.'''
+        if use_nn:
+            mus = modulation.get_nn(self.bin_centers)
+        else:
+            mus = modulation.get_mom(self.bin_centers)
+        return np.weighted_average(1/mus)
     
 
 class EnergyDependence:
-    def default(use_nn):
-        if use_nn:
-            '''Use the default energy dependence depending on whether the analysis method is NN or Mom'''
-            return EnergyDependence.lawrence_nn(use_nn)
-        else:
-            return EnergyDependence.lawrence_mom(use_nn)
+    def __init__(self, energies, sigma_parallel2, sigma_perp2, kurtosis4, mu):
+        '''Create the EnergyDependence object, a class that stores the leakage parameters sigma parallel, sigma perp, kurtosis, and modulation factor (mu) as a function of energy. These parameters are observation-independenent (in principle). The observation-dependent parameters are stored in Spectrum. Differences between detectors is not accounted for, although they likely exist'''
+        self.interpolator_parallel = interp1d(energies, sigma_parallel2, bounds_error=False, fill_value=(sigma_parallel2[0], sigma_parallel2[-1]))
+        self.interpolator_perp = interp1d(energies, sigma_perp2, bounds_error=False, fill_value=(sigma_perp2[0], sigma_perp2[-1]))
+        self.interpolator_kurtosis = interp1d(energies, kurtosis4, bounds_error=False, fill_value=(kurtosis4[0], kurtosis4[-1]))
+        self.interpolator_mu = interp1d(energies, mu, bounds_error=False, fill_value=(mu[0], mu[-1]))
 
-    def lawrence_nn(use_nn):
-        '''Get the energy dependence functions for sigma parallel and sigma perp for Neural Net data'''
+    def default(use_nn):
+        '''Use the default energy dependence depending on whether the analysis method is NN or Mom'''
+        if use_nn:
+            return EnergyDependence.lawrence_nn()
+        else:
+            return EnergyDependence.lawrence_mom()
+    
+    def constant(sigma_parallel, use_nn):
+        '''Get the energy dependent functions for sigma parallel and sigma perp assuming no sigma perp, no kurtosis, and constant energy dependence'''
+        energies = np.array([1., 10.])
+        sigma_parallel2 = np.ones_like(energies) * sigma_parallel**2
+        sigma_perp2 = np.zeros_like(energies)
+        kurtosis4 = np.zeros_like(energies)
+        if use_nn:
+            mu = modulation.get_nn(energies)
+        else:
+            mu = modulation.get_mom(energies)
+        return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, mu)
+
+    def lawrence_nn():
+        '''Get the energy dependent functions for sigma parallel and sigma perp for Neural Net data'''
         # Generated in vis/get-true-trends
         values = np.load(f"{LEAKAGE_DATA_DIRECTORY}/sigma-tot/sigma-tot.npy")
         energies = values[0]
@@ -71,10 +93,10 @@ class EnergyDependence:
         sigma_perp2 = sigma_perps**2
         kurtosis4 = (NN_KURT_SCALE * kurts)**4
 
-        return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, use_nn)
+        return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, modulation.get_nn(energies))
     
-    def lawrence_mom(use_nn):
-        '''Get the energy dependence functions for sigma parallel and sigma perp for Moments data'''
+    def lawrence_mom():
+        '''Get the energy dependent functions for sigma parallel and sigma perp for Moments data'''
         # Generated in vis/get-true-trends
         values = np.load(f"{LEAKAGE_DATA_DIRECTORY}/sigma-tot/sigma-tot.npy")
         energies = values[0]
@@ -86,50 +108,41 @@ class EnergyDependence:
         sigma_perp2 = sigma_perps**2
         kurtosis4 = (MOM_KURT_SCALE * kurts)**4
 
-        return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, use_nn)
-    
-    def constant(sigma_parallel, use_nn):
-        '''Get the energy dependence functions for sigma parallel and sigma perp for Moments data'''
-        energies = np.array([1., 10.])
-        sigma_parallel2 = np.ones_like(energies) * sigma_parallel**2
-        sigma_perp2 = np.zeros_like(energies)
-        kurtosis4 = np.zeros_like(energies)
-        return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, use_nn)
+        return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, modulation.get_mom(energies))
 
-    def __init__(self, energies, sigma_parallel2, sigma_perp2, kurtosis4, use_nn):
-        self.interpolator_parallel = interp1d(energies, sigma_parallel2, bounds_error=False, fill_value=(sigma_parallel2[0], sigma_parallel2[-1]))
-        self.interpolator_perp = interp1d(energies, sigma_perp2, bounds_error=False, fill_value=(sigma_perp2[0], sigma_perp2[-1]))
-        self.interpolator_kurtosis = interp1d(energies, kurtosis4, bounds_error=False, fill_value=(kurtosis4[0], kurtosis4[-1]))
-
-    def get_params(self, spectrum, weighted):
+    def get_params(self, spectrum):
         '''Get the average sigma plus and sigma minus for a given source.
         # Arguments:
-            - spectrum: Spectrum object for the data in question. Either create one with the Spectrum object directly or pass in the spectrum attribute of an IXPEData object.
-            - weighted: True to weight by mu, False otherwise.
-        '''
-        bins, fracs = spectrum.get_fracs(weighted)
+            * spectrum: Spectrum object for the data in question. Either create one with the Spectrum object directly or pass in the spectrum attribute of an IXPEData object.
 
-        sigma_para2 = np.sum(fracs * self(bins)[0])
-        sigma_perp2 = np.sum(fracs * self(bins)[1])
-        kurtosis4 = np.sum(fracs * self(bins)[2])
-        
-        k_parallel = kurtosis4
-        k_perp = 3 * sigma_perp2**2
-        if NO_K_PERP:
-            k_perp = 0
+        # Returns:
+            * A dictionary of all the leakage parameters: sigma_plus, sigma_minus, k_plus, k_minus, k_cross, and mu_*.
+        '''
+        sigma_para2_vals = spectrum.sample_from_interpolator(self.interpolator_parallel)
+        sigma_perp2_vals = spectrum.sample_from_interpolator(self.interpolator_perp)
+        k_parallel4 = spectrum.sample_from_interpolator(self.interpolator_kurtosis)
+        mu_vals = spectrum.sample_from_interpolator(self.interpolator_mu)
+
+        k_perp4 = 3 * sigma_perp2_vals**2
         k_both = 0
 
-        sigma_plus = sigma_para2 + sigma_perp2
-        sigma_minus = sigma_para2 - sigma_perp2
-        k_plus = k_parallel + k_perp + 2 * k_both
-        k_minus = k_parallel - k_perp
-        k_cross = (6 * k_both - k_parallel + k_perp) / 4 # = -k_minus / 4 if k_both=0# 
+        sigma_plus = sigma_para2_vals + sigma_perp2_vals
+        sigma_minus = sigma_para2_vals - sigma_perp2_vals
+        k_plus = k_parallel4 + k_perp4 + 2 * k_both
+        k_minus = k_parallel4 - k_perp4
+        k_cross = (6 * k_both - k_parallel4 + k_perp4) / 4
 
-        return sigma_plus, sigma_minus, k_plus, k_minus, k_cross
+        return {
+            "sigma_plus": spectrum.weighted_average(sigma_plus),
+            "sigma_minus": spectrum.weighted_average(sigma_minus),
+            "k_plus": spectrum.weighted_average(k_plus),
+            "k_minus": spectrum.weighted_average(k_minus),
+            "k_cross": spectrum.weighted_average(k_cross),
 
-    def __call__(self, energy):
-        return [
-            self.interpolator_parallel(energy),
-            self.interpolator_perp(energy),
-            self.interpolator_kurtosis(energy),
-        ]
+            "mu": spectrum.weighted_average(mu_vals),
+            "mu_sigma_plus": spectrum.weighted_average(mu_vals * sigma_plus),
+            "mu_sigma_minus": spectrum.weighted_average(mu_vals * sigma_minus),
+            "mu_k_plus": spectrum.weighted_average(mu_vals * k_plus),
+            "mu_k_minus": spectrum.weighted_average(mu_vals * k_minus),
+            "mu_k_cross": spectrum.weighted_average(mu_vals * k_cross),
+        }
