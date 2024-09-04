@@ -83,8 +83,6 @@ class IXPEData:
             if not "det2" in f: continue
             detectors[1] = IXPEData(source, (f"{event_directory}/{f}", hks[1]), energy_cut, time_cut_frac=time_cut_frac, weight_image=weight_image)
 
-        det2_offset = detectors[1].total_shift
-
         for f in os.listdir(event_directory):
             if not f.endswith(".fits"): continue
             if not f.startswith("ixpe"): continue
@@ -93,7 +91,7 @@ class IXPEData:
             elif "det3" in f:
                 i = 2
             else: continue
-            detectors[i] = IXPEData(source, (f"{event_directory}/{f}", hks[i]), energy_cut, det2_offset, time_cut_frac=time_cut_frac, weight_image=weight_image)
+            detectors[i] = IXPEData(source, (f"{event_directory}/{f}", hks[i]), energy_cut, None, time_cut_frac=time_cut_frac, weight_image=weight_image)
 
         return detectors
     
@@ -109,23 +107,31 @@ class IXPEData:
     def __init__(self, source, file_name, energy_cut=(2, 8), det2_offset=None, time_cut_frac=None, weight_image=False):
         '''Make the IXPE data image for one detector.'''
         
-        self.arcsec_per_unit = IXPE_PIXEL_SIZE
         with fits.open(file_name[0], memmap=False) as hdul:
             events = hdul[1].data
             self.det = int(hdul[1].header["DETNAM"][2:])
-            x_center = events.columns["X"].coord_ref_point
-            y_center = events.columns["Y"].coord_ref_point
 
             energies = 0.02 + events["PI"] * 0.04
-            energy_mask = (energy_cut[0] <= energies) & (energies < energy_cut[1])
-            events = events[energy_mask]
+            # energy mask
+            self.mask = (energy_cut[0] <= energies) & (energies < energy_cut[1])
 
-            times = events["TIME"]
             if time_cut_frac is not None:
+                times = events["TIME"]
                 min_time = np.nanquantile(times, time_cut_frac[0])
                 max_time = np.nanquantile(times, time_cut_frac[1])
-                time_mask = (min_time < times) & (times < max_time)
-                events = events[time_mask]
+                self.mask &= (min_time < times) & (times < max_time)
+            events = events[self.mask]
+
+            self.evt_xs = events["X"] * IXPE_PIXEL_SIZE
+            self.evt_ys = events["Y"] * IXPE_PIXEL_SIZE
+            self.evt_qs = events["Q"]
+            self.evt_us = events["U"]
+            self.evt_energies = 0.02 + events["PI"] * 0.04
+            self.evt_pis = events["PI"]
+            if "nn.fits" in file_name[0]:
+                self.evt_ws = events["W_NN"]
+            else:
+                self.evt_ws = events["W_MOM"]
 
         # Extract orientation from the housekeeping file too
         with fits.open(file_name[1], memmap=False) as hdu:
@@ -139,60 +145,83 @@ class IXPEData:
         self.pixel_edges -= np.max(self.pixel_edges) / 2
         self.pixel_centers = self.pixel_edges[:-1] + (self.pixel_edges[1] - self.pixel_edges[0]) / 2
         self.counts = len(events)
+        self.temporary_shift_value = np.array([0, 0])
+        self.weight_image = weight_image
 
-        # Get the spectrum
-        energies = 0.02 + np.arange(np.max(events["PI"]) + 1) * 0.04
+        if CENTROID_CENTER:
+            self.centroid_center()
+        self.extract_spectrum()
+        self.compute_background()
+        self.bin_data()
+
+    def cut(self, mask):
+        current_indices = np.arange(len(self.mask)).astype(int)[self.mask]
+        excluded_indices = current_indices[~mask]
+        self.mask[excluded_indices] = False
+        self.evt_xs = self.evt_xs[mask]
+        self.evt_ys = self.evt_ys[mask]
+        self.evt_qs = self.evt_qs[mask]
+        self.evt_us = self.evt_us[mask]
+        self.evt_energies = self.evt_energies[mask]
+        self.evt_pis = self.evt_pis[mask]
+        self.evt_ws = self.evt_ws[mask]
+        self.extract_spectrum()
+        self.bin_data()
+
+    def extract_spectrum(self):
+        energies = 0.02 + np.arange(np.max(self.evt_pis) + 1) * 0.04
         binned_counts = np.zeros_like(energies)
         binned_weights = np.zeros_like(energies)
-        if "nn.fits" in file_name[0]:
-            weights = events["W_NN"]
-        else:
-            weights = events["W_MOM"]
-        for pi, weight in zip(events["PI"], weights):
+        for pi, weight in zip(self.evt_pis, self.evt_ws):
             binned_counts[pi] += 1
             binned_weights[pi] += weight
 
         self.spectrum = Spectrum(energies, binned_counts, binned_weights / np.maximum(binned_counts, 1))
 
-        # Extract the data
-        total_shift = np.zeros(2)
-        poses = np.array((events["X"], events["Y"])).transpose() * self.arcsec_per_unit
+    def centroid_center(self):
+        poses = np.array((self.evt_xs, self.evt_ys)).transpose()
+        poses -= np.nanmedian(poses, axis=0)
 
-        if CENTROID_CENTER or self.det == 2:
-            total_shift += np.nanmedian(poses, axis=0)
-            poses -= np.nanmedian(poses, axis=0)
+        image_mask = (np.abs(poses[:,0]) < self.pos_cut) & \
+            (np.abs(poses[:,1]) < self.pos_cut)
+        poses -= np.nanmedian(poses[image_mask,:], axis=0)
 
-            image_mask = (np.abs(poses[:,0]) < self.pos_cut) & \
-                (np.abs(poses[:,1]) < self.pos_cut)
-            total_shift += np.nanmedian(poses[image_mask,:], axis=0)
-            poses -= np.nanmedian(poses[image_mask,:], axis=0)
-            
+        # Zoom in and recenter again
+        core_mask = np.sqrt(poses[:,0]**2 + poses[:,1]**2) < self.pos_cut / 3
+        poses -= np.nanmedian(poses[core_mask], axis=0)
 
-            # Zoom in and recenter again
-            core_mask = np.sqrt(poses[:,0]**2 + poses[:,1]**2) < self.pos_cut / 3
-            total_shift += np.nanmedian(poses[core_mask], axis=0)
-            poses -= np.nanmedian(poses[core_mask], axis=0)
+        self.evt_xs = poses[:,0]
+        self.evt_ys = poses[:,1]
 
-            self.total_shift = (total_shift - np.array([x_center, y_center]) * self.arcsec_per_unit)
-        else:
-            if det2_offset is None:
-                raise Exception("If you don't use the centroid centering option, you must only load data sets as a group so that the pointing error of the telescope can be determined.")
-            poses -= np.array([x_center, y_center]) * self.arcsec_per_unit + det2_offset
-
+    def compute_background(self):
         # Compute the flux of really distant particles
+        # By default, this flux is not subtracted away, but you can if you want to 
+        poses = np.array((self.evt_xs, self.evt_ys)).transpose()
         lower_radius = 120 # 2 arcmin
         upper_radius = 180 # 3 arcmin
         area = np.pi * (upper_radius**2 - lower_radius**2)
         dists = np.sqrt(poses[:,0]**2 + poses[:,1]**2)
         self.bg_flux_annulus = float(np.sum((lower_radius < dists) & (dists < upper_radius))) / area
-        # By default, this flux is not subtracted away, but you can if you want to 
+
+    def temporary_shift(self, shift):
+        # Shift the image by some amount
+        shift = np.array(shift)
+        current_shift = shift - self.temporary_shift_value
+        self.temporary_shift_value = shift
+        self.evt_xs += current_shift[0]
+        self.evt_ys += current_shift[0]
+        self.bin_data()
+
+    def bin_data(self):
+        poses = np.array((self.evt_xs, self.evt_ys)).transpose()
+        qus = np.array((self.evt_qs, self.evt_us)).transpose()
 
         # Compute the actual mask for the image
         image_mask = (np.abs(poses[:,0]) < self.pos_cut) & \
             (np.abs(poses[:,1]) < self.pos_cut)
-        masked_events = events[image_mask]
         poses = poses[image_mask]
-        weights = weights[image_mask]
+        qus = qus[image_mask]
+        weights = self.evt_ws[image_mask]
 
         xi = np.digitize(poses[:,1], self.pixel_edges[1:])
         yi = np.digitize(poses[:,0], self.pixel_edges[1:])
@@ -207,18 +236,18 @@ class IXPEData:
         for x_index in range(self.pixels_per_row):
             for y_index in range(self.pixels_per_row):
                 mask = (xi == x_index) & (yi == y_index)
-                if weight_image:
+                if self.weight_image:
                     pixel_i = np.sum(weights[mask])
-                    qs = masked_events["Q"][mask] * weights[mask]
-                    us = masked_events["U"][mask] * weights[mask]
+                    qs = qus[mask,0] * weights[mask]
+                    us = qus[mask,1] * weights[mask]
                 else:
                     pixel_i = np.sum(mask)
-                    qs = masked_events["Q"][mask]
-                    us = masked_events["U"][mask]
+                    qs = qus[mask,0]
+                    us = qus[mask,1]
                 mean_q = np.mean(qs)
                 mean_u = np.mean(us)
 
-                # Method 1: the cov matrix found in the Kislat paper
+                # Method 1: the cov matrix found in the Kislat paper. This is the covariance betwee the totale qs, not the mean qs
                 cov = pixel_i * np.array([
                     [2-mean_q*mean_q, -mean_q*mean_u],
                     [-mean_q*mean_u, 2-mean_u*mean_u]
