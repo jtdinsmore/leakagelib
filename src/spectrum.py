@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
 from .settings import *
-import modulation
+from . import modulation
 
 class Spectrum:
     def __init__(self, bin_centers, counts, weights):
@@ -47,9 +47,9 @@ class Spectrum:
     def get_avg_one_over_mu(self, use_nn):
         '''Get the average of 1 over the modulation factor.'''
         if use_nn:
-            mus = modulation.get_nn(self.bin_centers)
+            mus = modulation.get_nn_modf(self.bin_centers)
         else:
-            mus = modulation.get_mom(self.bin_centers)
+            mus = modulation.get_mom_modf(self.bin_centers)
         return np.weighted_average(1/mus)
     
 
@@ -75,9 +75,9 @@ class EnergyDependence:
         sigma_perp2 = np.zeros_like(energies)
         kurtosis4 = np.zeros_like(energies)
         if use_nn:
-            mu = modulation.get_nn(energies)
+            mu = modulation.get_nn_modf(energies)
         else:
-            mu = modulation.get_mom(energies)
+            mu = modulation.get_mom_modf(energies)
         return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, mu)
 
     def lawrence_nn():
@@ -93,7 +93,7 @@ class EnergyDependence:
         sigma_perp2 = sigma_perps**2
         kurtosis4 = (NN_KURT_SCALE * kurts)**4
 
-        return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, modulation.get_nn(energies))
+        return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, modulation.get_nn_modf(energies))
     
     def lawrence_mom():
         '''Get the energy dependent functions for sigma parallel and sigma perp for Moments data'''
@@ -108,7 +108,7 @@ class EnergyDependence:
         sigma_perp2 = sigma_perps**2
         kurtosis4 = (MOM_KURT_SCALE * kurts)**4
 
-        return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, modulation.get_mom(energies))
+        return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, modulation.get_mom_modf(energies))
 
     def get_params(self, spectrum):
         '''Get the average sigma plus and sigma minus for a given source.

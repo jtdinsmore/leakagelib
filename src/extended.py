@@ -36,19 +36,15 @@ def fit_extended(source, psfs, spectrum, is_obs, qs_obs, us_obs, initial_source_
     if energy_dependence is None:
         energy_dependence = EnergyDependence.default(source.use_nn)
     detector_params = []
-    mus = []
     for det in range(3):
-        params = energy_dependence.get_params(spectrum)
-        detector_params.append(params)
-        mu = spectrum.get_avg_weight()
-        mus.append(mu)
+        detector_params.append(energy_dependence.get_params(spectrum))
 
     # Initialization
     n_pixels = np.prod(is_obs[0].shape)
     if initial_source_pol is None:
         initial_source_pol = np.array([np.mean(qs_obs, axis=0), np.mean(us_obs, axis=0)])
         # initial_source_pol += np.random.randn(*initial_source_pol.shape) * 0.1
-        initial_source_pol /= spectrum.get_avg_weight()
+        initial_source_pol *= spectrum.get_avg_one_over_mu(source.use_nn)
     source_pol = initial_source_pol
     last_gradient = None
     rate = INITIAL_RATE
@@ -115,7 +111,7 @@ def fit_extended(source, psfs, spectrum, is_obs, qs_obs, us_obs, initial_source_
         z = 0
         source.polarize_array(source_pol)
 
-        for det, (params, mu) in enumerate(zip(detector_params, mus)):
+        for det, params in enumerate(detector_params):
             leak_i, leak_q, leak_u = source.compute_leakage(psfs[det], spectrum, normalize=True)
             leak_i *= np.sum(source.source) / np.sum(leak_i) # This thing makes the analytic gradient incorrect but I don't think it matters because it ought to affect every pixel by about the same amount, effectively scaling the gradient rather than turning it and who cares about that.
 

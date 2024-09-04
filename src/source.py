@@ -299,7 +299,6 @@ class Source:
         if energy_dependence is None:
             energy_dependence = EnergyDependence.default(self.use_nn)
         params = energy_dependence.get_params(spectrum)
-        mu = spectrum.get_avg_weight()
 
         if WARN and params["sigma_minus"] < 0:
             print("WARNING: sigma perp should not be bigger than sigma parallel squared.")
