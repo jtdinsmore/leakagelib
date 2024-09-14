@@ -10,7 +10,7 @@ IXPE_PIXEL_SIZE = 2.6 # arcsec
 CENTROID_CENTER = True
 
 class IXPEData:
-    def load_all_detectors(source, obs_id, energy_cut=(2, 8), time_cut_frac=None, weight_image=False):
+    def load_all_detectors(source, obs_id, energy_cut=(2, 8), time_cut_frac=None, weight_image=False, bin=True):
         '''Load all detectors
         
         ## Arguments:
@@ -24,13 +24,13 @@ class IXPEData:
         A list of IXPEData objects for all three detectors. 
         '''
         for prepath in DATA_DIRECTORIES:
-            result = IXPEData.load_all_detectors_with_path(prepath, source, obs_id, energy_cut, time_cut_frac, weight_image)
+            result = IXPEData.load_all_detectors_with_path(prepath, source, obs_id, energy_cut, time_cut_frac, weight_image, bin)
             if result is not None:
                 return result
         raise Exception(f"Could not find any observations with ID {obs_id}")
     
 
-    def load_all_detectors_with_path(prepath, source, obs_id, energy_cut=(2, 8), time_cut_frac=None, weight_image=False):
+    def load_all_detectors_with_path(prepath, source, obs_id, energy_cut=(2, 8), time_cut_frac=None, weight_image=False, bin=True):
         '''Load all detectors
         
         ## Arguments:
@@ -91,7 +91,7 @@ class IXPEData:
             elif "det3" in f:
                 i = 2
             else: continue
-            detectors[i] = IXPEData(source, (f"{event_directory}/{f}", hks[i]), energy_cut, None, time_cut_frac=time_cut_frac, weight_image=weight_image)
+            detectors[i] = IXPEData(source, (f"{event_directory}/{f}", hks[i]), energy_cut, None, time_cut_frac=time_cut_frac, weight_image=weight_image, bin=bin)
 
         return detectors
     
@@ -104,10 +104,10 @@ class IXPEData:
             polarizations.append(polarization)
         return np.mean(polarizations, axis=0)
 
-    def __init__(self, source, file_name, energy_cut=(2, 8), det2_offset=None, time_cut_frac=None, weight_image=False):
+    def __init__(self, source, file_name, energy_cut=(2, 8), det2_offset=None, time_cut_frac=None, weight_image=False, bin=True):
         '''Make the IXPE data image for one detector.'''
-        
-        with fits.open(file_name[0], memmap=False) as hdul:
+
+        with fits.open(file_name[0]) as hdul:
             events = hdul[1].data
             self.det = int(hdul[1].header["DETNAM"][2:])
 
@@ -134,9 +134,10 @@ class IXPEData:
                 self.evt_ws = events["W_MOM"]
 
         # Extract orientation from the housekeeping file too
-        with fits.open(file_name[1], memmap=False) as hdu:
+        with fits.open(file_name[1]) as hdu:
             self.rotation = hdu[0].header['PADYN']
 
+        self.bin = bin
         self.pixels_per_row = len(source.source)
         self.pixel_size = source.pixel_size#arcsec
 
@@ -215,6 +216,7 @@ class IXPEData:
         self.bin_data()
 
     def bin_data(self):
+        if not self.bin: return
         poses = np.array((self.evt_xs, self.evt_ys)).transpose()
         qus = np.array((self.evt_qs, self.evt_us)).transpose()
 
@@ -232,12 +234,16 @@ class IXPEData:
         self.i = np.zeros(shape)
         self.q = np.zeros(shape)
         self.u = np.zeros(shape)
-        self.weights = np.zeros(shape)
+        self.n = np.zeros(shape) # Unweighted i
+        self.w2 = np.zeros(shape) # Weights squared
         self.cov_inv = np.zeros((shape[0], shape[1], 2, 2))
+
+        total_mask = np.zeros_like(xi)
 
         for x_index in range(self.pixels_per_row):
             for y_index in range(self.pixels_per_row):
                 mask = (xi == x_index) & (yi == y_index)
+                total_mask += mask
                 if self.weight_image:
                     pixel_i = np.sum(weights[mask])
                     qs = qus[mask,0] * weights[mask]
@@ -249,34 +255,22 @@ class IXPEData:
                 mean_q = np.mean(qs)
                 mean_u = np.mean(us)
 
-                # Method 1: the cov matrix found in the Kislat paper. This is the covariance betwee the totale qs, not the mean qs
                 cov = pixel_i * np.array([
                     [2-mean_q*mean_q, -mean_q*mean_u],
                     [-mean_q*mean_u, 2-mean_u*mean_u]
                 ])
 
-                # Method 2: the cov matrix I derived. But it can be multiplied by an arbitrary factor.
-                # cov = (4 / np.sum(mask)) * np.mean([
-                #     [us*us, -qs*us],
-                #     [-qs*us, qs*qs]
-                # ], axis=-1)
-
-                # Method 3: the cov matrix of the data
-                # cov = np.cov(qs, us) * pixel_i
-
-                if np.linalg.det(cov) < 0 or np.any(np.isnan(cov)) or np.sum(mask) == 0:
+                if np.sum(mask) == 0:
                     # Bail on this pixel
-                    self.i[x_index,y_index] = 0#np.nan
-                    self.q[x_index,y_index] = 0#np.nan
-                    self.u[x_index,y_index] = 0#np.nan
-                    self.weights[x_index,y_index] = 0#np.nan
                     self.cov_inv[x_index,y_index] = np.nan
                 else:
+                    self.n[x_index,y_index] = np.sum(mask)
+                    self.w2[x_index,y_index] = np.sum(weights[mask]**2)
                     self.i[x_index,y_index] = pixel_i
                     self.q[x_index,y_index] = np.sum(qs)
                     self.u[x_index,y_index] = np.sum(us)
-                    self.weights[x_index,y_index] = np.mean(weights[mask])
                     self.cov_inv[x_index,y_index] = pinvh(cov)
+
 
     def get_antirotation_matrix(self):
         '''Get a 2D rotation matrix which reverses the detector's rotation'''
