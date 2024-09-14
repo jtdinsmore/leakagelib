@@ -19,7 +19,7 @@ class Spectrum:
         self.counts /= np.sum(self.counts)
 
     def from_power_law_index(pl_index):
-        '''Load the spectrum assuming power law-distributed 2-8 keV counts (not the same a power law-distributed source, because this function doesn't simulate the detector ARF). Unweighted. Useful for demonstration purposes only. In practice, use your own simulation for an IXPE observation.'''
+        '''Load the spectrum assuming power law-distributed 2-8 keV counts. Unweighted. Useful for demonstration purposes only. In practice, use a more accurate simulation for an IXPE observation.'''
         values = pd.read_csv(f"{LEAKAGE_DATA_DIRECTORY}/effective-area/ixpe-eff-area.csv")
         energies = np.array(values["ENERGY"])
         areas = np.array(values["AREA"])
@@ -50,7 +50,15 @@ class Spectrum:
             mus = modulation.get_nn_modf(self.bin_centers)
         else:
             mus = modulation.get_mom_modf(self.bin_centers)
-        return np.weighted_average(1/mus)
+        return self.weighted_average(1/mus)
+
+    def get_avg_mu(self, use_nn):
+        '''Get the average of 1 over the modulation factor.'''
+        if use_nn:
+            mus = modulation.get_nn_modf(self.bin_centers)
+        else:
+            mus = modulation.get_mom_modf(self.bin_centers)
+        return self.weighted_average(mus)
     
 
 class EnergyDependence:
