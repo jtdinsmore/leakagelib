@@ -25,7 +25,8 @@ import leakagelib
 ## Files
 
 - **examples** contains example code for the main functions of this library:
-    - **examples/point-source.py** predicts leakage patterns for a given point source. This code will fail if you have not downloaded the point source observation in question (GX 9+9, obsid 01002401). Only the unzipped L2 and housekeeping files are needed.
+    - **examples/leakage-severity.py** plots the distribution of leakage PD as predicted by LeakageLib. You can use this to determine how severe leakage is. You can also change the spectrum of the source and its spatial distribution if desired.
+    - **examples/point-source.py** predicts leakage patterns for a given point source and compares to observations. This code will fail if you have not downloaded the point source observation in question (GX 9+9, obsid 01002401). Only the unzipped L2 and housekeeping files are needed (in fact, only the `*att*` housekeeping files are needed, which give the roll of the spacecraft).
 
     - **examples/predict.py** predicts leakage patterns for a synthetic nebula. This requires no downloads.
 

@@ -31,19 +31,12 @@ if __name__ == "__main__":
     for det in range(3):
         psfs.append(leakagelib.PSF.sky_cal(det, source, det * np.pi / 3 * 2))
 
-    # Manually set the inertia of the point source
-    # inertia = np.ones((2, mock_qs[0].shape[0], mock_qs[0].shape[1]))
-    # inertia[:,source.source > (np.max(source.source) / 200)] = 0.1
-    # inertia[:,source.source > (np.max(source.source) / 100)] = 0.2
-    # inertia[:,source.source > (np.max(source.source) / 50)] = 0.5
-    # inertia[:,source.source > (np.max(source.source) / 2)] = 0.01
-
     # Perform the fit
     extracted_q, extracted_u, anim = leakagelib.fit_extended(
         source, psfs, SPECTRUM,                                     # Properties of the source
         mock_is, mock_qs, mock_us,                                  # Leakage-containing observations
         initial_source_pol=None,                                    # Use the default starting point for the fitter
-        # inertia=inertia,                                            # Optional argument to prevent some pixels from being numerically unstable
+        inertia=None,                                               # Optional argument to prevent some pixels from being numerically unstable
         num_iter=5000, max_rate=2e-2, regularize_coeff=0.4,         # Fitter settings
         report_frequency=50,                                        # Saves a snapshot every frame. Set to None to improve speed
     )

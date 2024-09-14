@@ -4,43 +4,13 @@ import sys, os
 sys.path.append("../..")
 import leakagelib
 
-SOURCE_SIZE = 25 # pixels # 41
-PIXEL_SIZE = 2.8 # arcsec # 4
-DETECTOR = 2 # Third detector
+SOURCE_SIZE = 21 # pixels. For a delta function source, make sure this is odd.
+PIXEL_SIZE = 3 # arcsec
+DETECTOR = 1 # SECOND detector (zero indexed)
 
 leakagelib.funcs.override_matplotlib_defaults() # Set the matplotlib defaults to Jack's settings
 
-if __name__ == "__main__":
-    # Get a point source Source object
-    source = leakagelib.Source.delta(
-        False,  # True if you would like to use neural net-reconstructed data in the future, and false if you would like to use Mom-reconstructed data.
-        SOURCE_SIZE,  # Number of spatial bins to put in a single row of your image. The image is assumed to be square
-        PIXEL_SIZE # The size of each pixel in arcsec. Together this and the previous argument multiply to give the width of the image in arcsec
-    )
-
-    # Load the data
-    ixpe_datas = leakagelib.IXPEData.load_all_detectors(source, "01002401")
-    ixpe_data = ixpe_datas[DETECTOR] # It's possible to load data for only one detector, but I'm loading all three and discarding all but the detector we want
-
-    # Load the PSF
-    psf = leakagelib.PSF.sky_cal(
-        DETECTOR,                       # Use the given detector index
-        source,                         # Use the Source object just created
-        ixpe_datas[DETECTOR].rotation   # Rotate the source by this amount
-    )
-
-    # Compute predictions
-    pred_i, pred_q, pred_u = source.compute_leakage(
-        psf,                # Use the PSF that was just loaded
-        ixpe_data.spectrum, # Use an example power-law spectrum
-        normalize=False      # Compute the unnormalized coefficients
-    )
-
-    # Normalize the prediction and data to the same number of counts
-    pred_q *= np.nansum(ixpe_data.i) / np.nansum(pred_i)
-    pred_u *= np.nansum(ixpe_data.i) / np.nansum(pred_i)
-    pred_i *= np.nansum(ixpe_data.i) / np.nansum(pred_i)
-
+def plot_images(source, ixpe_data, pred_i, pred_q, pred_u):
     fig, axs = plt.subplots(ncols=3,nrows=3, figsize=(14, 12), sharex=True, sharey=True, gridspec_kw=dict(width_ratios=(1.25,1,1.25)))
 
     vmax = np.max(np.abs([ixpe_data.q, ixpe_data.u, pred_q, pred_u]))
@@ -82,3 +52,43 @@ if __name__ == "__main__":
     fig.savefig("figs/point-source.png")
     # fig.savefig("figs/point-source.pdf")
     
+
+if __name__ == "__main__":
+    # Get a point source (delta function) Source object
+    source = leakagelib.Source.delta(
+        False,  # True if you would like to use neural net-reconstructed data in the future, and False if you would like to use Mom-reconstructed data.
+        SOURCE_SIZE,  # Number of spatial bins to put in a single row of your image. The image is assumed to be square
+        PIXEL_SIZE # The size of each pixel in arcsec. Together this and the previous argument multiply to give the width of the image in arcsec
+    )
+
+    # Use this line of code to give a uniform polarization to the whole image
+    # source.polarize_net((0.25, -0.25))
+
+    # Load the data. Feel free to change the observation id to whatever you want.
+    ixpe_datas = leakagelib.IXPEData.load_all_detectors(source, "01002401") # Gx99
+    # ixpe_datas = leakagelib.IXPEData.load_all_detectors(source, "01002601") # Gx301
+    # ixpe_datas = leakagelib.IXPEData.load_all_detectors(source, "02001901") # LMC
+    # ixpe_datas = leakagelib.IXPEData.load_all_detectors(source, "02002399") # 4U 1820-303
+    
+    ixpe_data = ixpe_datas[DETECTOR] # It's possible to load data for only one detector, but I'm loading all three and discarding all but the detector we want
+
+    # Load the PSF
+    psf = leakagelib.PSF.sky_cal(
+        DETECTOR,                       # Use the given detector index
+        source,                         # Use the Source object just created
+        ixpe_datas[DETECTOR].rotation   # Rotate the source by this amount
+    )
+
+    # Compute predictions
+    pred_i, pred_q, pred_u = source.compute_leakage(
+        psf,                # Use the PSF that was just loaded
+        ixpe_data.spectrum, # Use an example power-law spectrum
+        normalize=False     # Compute the unnormalized coefficients
+    )
+
+    # Adjust the prediction and data to the same number of counts
+    pred_q *= np.nansum(ixpe_data.i) / np.nansum(pred_i)
+    pred_u *= np.nansum(ixpe_data.i) / np.nansum(pred_i)
+    pred_i *= np.nansum(ixpe_data.i) / np.nansum(pred_i)
+
+    plot_images(source, ixpe_data, pred_i, pred_q, pred_u)
