@@ -146,6 +146,25 @@ class Source:
         else:
             image[num_pixels//2, num_pixels//2] = 1
         return Source(image, use_nn, num_pixels, pixel_size, store_info, is_point_source=True)
+    
+    def gaussian(use_nn, num_pixels, pixel_size, sigma, store_info=False):
+        '''Creates a Gaussian-shaped Source object
+
+        # Arguments:
+            - `use_nn`: True if you will later choose to run your results with NN-reconstructed data. False for moments-reconstructed data
+            - `num_pixels`: number of pixels in the output image. An integer is required and an odd integer is recommended.
+            - `pixel_size`: width of each pixel in arcseconds.
+            - `sigma`: standard deviation of the Gaussian in arcsec
+            - `store_info`: Set to true to store info from the source and PSF to speed up some computations. This forces you to manually call `invalidate_psf` and `invalidate_source_polarization` if you use it.
+        '''
+
+        line = np.arange(num_pixels).astype(float) * pixel_size
+        line -= line[-1] / 2
+        dist2 = np.sum(np.array(np.meshgrid(line, line))**2, axis=0)
+        gaussian = np.exp(-dist2 / (2 * sigma**2))
+        gaussian /= np.sum(gaussian)
+
+        return Source(gaussian, use_nn, num_pixels, pixel_size, store_info)
 
     def __init__(self, image, use_nn, source_size, pixel_size, store_info=False, is_point_source=False):
         '''Loads a Source object from a 2d array.
@@ -318,17 +337,17 @@ class Source:
             + params["mu_k_minus"] * (self.d_qk_q[psf.det] + self.d_uk_u[psf.det]) / 2
         )
         q = (
+            + params["mu"] * self.d_i_q[psf.det]
             + params["sigma_minus"] * self.d_qs_i[psf.det]
             + params["k_minus"] * self.d_qk_i[psf.det]
-            + params["mu"] * self.d_i_q[psf.det]
             + params["mu_sigma_plus"] * self.d_zs_q[psf.det]
             + params["mu_k_plus"] * self.d_zk_q[psf.det]
             + params["mu_k_cross"] * (self.d_xk_q[psf.det] + self.d_yk_u[psf.det]) / 2
         )
         u = (
+            + params["mu"] * self.d_i_u[psf.det]
             + params["sigma_minus"] * self.d_us_i[psf.det]
             + params["k_minus"] * self.d_uk_i[psf.det]
-            + params["mu"] * self.d_i_u[psf.det]
             + params["mu_sigma_plus"] * self.d_zs_u[psf.det]
             + params["mu_k_plus"] * self.d_zk_u[psf.det]
             + params["mu_k_cross"] * (self.d_yk_q[psf.det] - self.d_xk_u[psf.det]) / 2
@@ -346,5 +365,5 @@ class Source:
 
     def divide_by_mu(self, q, u, spectrum):
         '''Divide by the detector modulation factor to get the "true" Q and U images. You can pass in either normalized or unnormalized q and u. The spectrum is used to compute the average polarization weight.'''
-        mu_100 = spectrum.get_avg_weight()
-        return q / mu_100, u / mu_100
+        one_over_mu = spectrum.get_avg_one_over_mu(self.use_nn)
+        return q * one_over_mu, u * one_over_mu
