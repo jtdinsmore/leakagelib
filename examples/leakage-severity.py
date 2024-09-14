@@ -9,8 +9,7 @@ import sys
 sys.path.append("../..")
 import leakagelib
 
-# leakagelib.funcs.override_matplotlib_defaults()
-plt.style.use("root")
+leakagelib.funcs.override_matplotlib_defaults()
 
 DETECTOR = 2 # THIRD detector (zero-indexed)
 
