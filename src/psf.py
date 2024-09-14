@@ -4,7 +4,6 @@ from scipy.ndimage import rotate
 from scipy.signal import convolve
 from .funcs import *
 from .settings import *
-from ixpeobssim.irf import load_psf
 
 GROUND_BLUR = 2#2.45# Arcsec
 OBSSIM_BLUR = 0#1.8# Arcsec
@@ -53,7 +52,7 @@ class PSF:
         return PSF(psf, initial_pixel_width, ground_blur, source, rotation, detector_index, clip)
 
     def obssim(detector_index, source, rotation, obssim_blur=OBSSIM_BLUR, clip=True):
-        '''Load the IXPEobssim PSFs, which at the time of publication were symmetric.
+        '''Load the IXPEobssim PSFs, which at the time of publication were symmetric. Requires IXPEobssim to be installed
         ## Arguments
         - detector_index: 0 for DU1, 1 for DU2, and 2 for DU3
         - source: a Source object used to set the width of the PSF
@@ -63,6 +62,7 @@ class PSF:
         ## Returns
         The PSF of the detector.
         '''
+        from ixpeobssim.irf import load_psf
 
         psf_ixpe = load_psf('ixpe:obssim:v11',du_id=detector_index+1)
         initial_pixel_width = 1
