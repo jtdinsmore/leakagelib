@@ -146,6 +146,29 @@ class Source:
         else:
             image[num_pixels//2, num_pixels//2] = 1
         return Source(image, use_nn, num_pixels, pixel_size, store_info, is_point_source=True)
+    
+    def gaussian(use_nn, num_pixels, pixel_size, sigma, store_info=False):
+        '''Creates a Gaussian-shaped Source object
+
+        # Arguments:
+            - `use_nn`: True if you will later choose to run your results with NN-reconstructed data. False for moments-reconstructed data
+            - `num_pixels`: number of pixels in the output image. An integer is required and an odd integer is recommended.
+            - `pixel_size`: width of each pixel in arcseconds.
+            - `sigma`: standard deviation of the Gaussian in arcsec
+            - `store_info`: Set to true to store info from the source and PSF to speed up some computations. This forces you to manually call `invalidate_psf` and `invalidate_source_polarization` if you use it.
+        '''
+
+        line = np.arange(num_pixels).astype(float) * pixel_size
+        line -= line[-1] / 2
+        dist2 = np.sum(np.array(np.meshgrid(line, line))**2, axis=0)
+        gaussian = np.exp(-dist2 / (2 * sigma**2))
+        gaussian /= np.sum(gaussian)
+
+        return Source(gaussian, use_nn, num_pixels, pixel_size, store_info)
+    
+    def no_image(use_nn):
+        """Create an empty source for use in initializing a dataset which will not be binned"""
+        return Source(np.array([[0]]), use_nn, 1, 1)
 
     def __init__(self, image, use_nn, source_size, pixel_size, store_info=False, is_point_source=False):
         '''Loads a Source object from a 2d array.
@@ -232,17 +255,17 @@ class Source:
 
     def _prepare_psf(self, psf):
         '''Prepare the leakage maps for the given source'''
-        self.d_i_i[psf.det] = convolve(self.source, psf.psf, mode="same")
+        self.d_i_i[psf.det-1] = convolve(self.source, psf.psf, mode="same")
 
-        self.d_zs_i[psf.det] = convolve(self.source, psf.d_zs, mode="same")
-        self.d_qs_i[psf.det] = convolve(self.source, psf.d_qs, mode="same")
-        self.d_us_i[psf.det] = convolve(self.source, psf.d_us, mode="same")
+        self.d_zs_i[psf.det-1] = convolve(self.source, psf.d_zs, mode="same")
+        self.d_qs_i[psf.det-1] = convolve(self.source, psf.d_qs, mode="same")
+        self.d_us_i[psf.det-1] = convolve(self.source, psf.d_us, mode="same")
 
-        self.d_zk_i[psf.det] = convolve(self.source, psf.d_zk, mode="same")
-        self.d_qk_i[psf.det] = convolve(self.source, psf.d_qk, mode="same")
-        self.d_uk_i[psf.det] = convolve(self.source, psf.d_uk, mode="same")
-        self.d_xk_i[psf.det] = convolve(self.source, psf.d_xk, mode="same")
-        self.d_yk_i[psf.det] = convolve(self.source, psf.d_yk, mode="same")
+        self.d_zk_i[psf.det-1] = convolve(self.source, psf.d_zk, mode="same")
+        self.d_qk_i[psf.det-1] = convolve(self.source, psf.d_qk, mode="same")
+        self.d_uk_i[psf.det-1] = convolve(self.source, psf.d_uk, mode="same")
+        self.d_xk_i[psf.det-1] = convolve(self.source, psf.d_xk, mode="same")
+        self.d_yk_i[psf.det-1] = convolve(self.source, psf.d_yk, mode="same")
 
 
     def _prepare_source_polarization(self, psf):
@@ -250,43 +273,43 @@ class Source:
 
         if self.is_point_source:
             q_src, u_src = np.mean(self.q_map), np.mean(self.u_map)
-            self.d_i_q[psf.det] = self.d_i_i[psf.det] * q_src
-            self.d_i_u[psf.det] = self.d_i_i[psf.det] * u_src
+            self.d_i_q[psf.det-1] = self.d_i_i[psf.det-1] * q_src
+            self.d_i_u[psf.det-1] = self.d_i_i[psf.det-1] * u_src
 
-            self.d_zs_q[psf.det] = self.d_zs_i[psf.det] * q_src
-            self.d_zk_q[psf.det] = self.d_zk_i[psf.det] * q_src
-            self.d_xk_q[psf.det] = self.d_xk_i[psf.det] * q_src
-            self.d_yk_q[psf.det] = self.d_yk_i[psf.det] * q_src
+            self.d_zs_q[psf.det-1] = self.d_zs_i[psf.det-1] * q_src
+            self.d_zk_q[psf.det-1] = self.d_zk_i[psf.det-1] * q_src
+            self.d_xk_q[psf.det-1] = self.d_xk_i[psf.det-1] * q_src
+            self.d_yk_q[psf.det-1] = self.d_yk_i[psf.det-1] * q_src
 
-            self.d_zs_u[psf.det] = self.d_zs_i[psf.det] * u_src
-            self.d_zk_u[psf.det] = self.d_zk_i[psf.det] * u_src
-            self.d_xk_u[psf.det] = self.d_xk_i[psf.det] * u_src
-            self.d_yk_u[psf.det] = self.d_yk_i[psf.det] * u_src
+            self.d_zs_u[psf.det-1] = self.d_zs_i[psf.det-1] * u_src
+            self.d_zk_u[psf.det-1] = self.d_zk_i[psf.det-1] * u_src
+            self.d_xk_u[psf.det-1] = self.d_xk_i[psf.det-1] * u_src
+            self.d_yk_u[psf.det-1] = self.d_yk_i[psf.det-1] * u_src
 
-            self.d_qs_q[psf.det] = self.d_qs_i[psf.det] * q_src
-            self.d_qk_q[psf.det] = self.d_qk_i[psf.det] * q_src
+            self.d_qs_q[psf.det-1] = self.d_qs_i[psf.det-1] * q_src
+            self.d_qk_q[psf.det-1] = self.d_qk_i[psf.det-1] * q_src
 
-            self.d_us_u[psf.det] = self.d_us_i[psf.det] * u_src
-            self.d_uk_u[psf.det] = self.d_uk_i[psf.det] * u_src
+            self.d_us_u[psf.det-1] = self.d_us_i[psf.det-1] * u_src
+            self.d_uk_u[psf.det-1] = self.d_uk_i[psf.det-1] * u_src
         else:
-            self.d_i_q[psf.det] = convolve(self.source * self.q_map, psf.psf, mode="same")
-            self.d_i_u[psf.det] = convolve(self.source * self.u_map, psf.psf, mode="same")
+            self.d_i_q[psf.det-1] = convolve(self.source * self.q_map, psf.psf, mode="same")
+            self.d_i_u[psf.det-1] = convolve(self.source * self.u_map, psf.psf, mode="same")
             
-            self.d_zs_q[psf.det] = convolve(self.source * self.q_map, psf.d_zs, mode="same")
-            self.d_zk_q[psf.det] = convolve(self.source * self.q_map, psf.d_zk, mode="same")
-            self.d_xk_q[psf.det] = convolve(self.source * self.q_map, psf.d_xk, mode="same")
-            self.d_yk_q[psf.det] = convolve(self.source * self.q_map, psf.d_yk, mode="same")
+            self.d_zs_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_zs, mode="same")
+            self.d_zk_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_zk, mode="same")
+            self.d_xk_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_xk, mode="same")
+            self.d_yk_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_yk, mode="same")
             
-            self.d_zs_u[psf.det] = convolve(self.source * self.u_map, psf.d_zs, mode="same")
-            self.d_zk_u[psf.det] = convolve(self.source * self.u_map, psf.d_zk, mode="same")
-            self.d_xk_u[psf.det] = convolve(self.source * self.u_map, psf.d_xk, mode="same")
-            self.d_yk_u[psf.det] = convolve(self.source * self.u_map, psf.d_yk, mode="same")
+            self.d_zs_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_zs, mode="same")
+            self.d_zk_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_zk, mode="same")
+            self.d_xk_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_xk, mode="same")
+            self.d_yk_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_yk, mode="same")
             
-            self.d_qs_q[psf.det] = convolve(self.source * self.q_map, psf.d_qs, mode="same")
-            self.d_qk_q[psf.det] = convolve(self.source * self.q_map, psf.d_qk, mode="same")
+            self.d_qs_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_qs, mode="same")
+            self.d_qk_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_qk, mode="same")
             
-            self.d_us_u[psf.det] = convolve(self.source * self.u_map, psf.d_us, mode="same")
-            self.d_uk_u[psf.det] = convolve(self.source * self.u_map, psf.d_uk, mode="same")
+            self.d_us_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_us, mode="same")
+            self.d_uk_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_uk, mode="same")
 
     def compute_leakage(self, psf, spectrum, energy_dependence=None, normalize=False):
         '''Get the Q and U maps for this source (unnormalized by default), given the provided PSF and spectrum. Note: these are _detection_ predictions, so you will have to divide by mu (use source.divide_by_mu) to compare to true polarizations
@@ -298,42 +321,40 @@ class Source:
         '''
         if energy_dependence is None:
             energy_dependence = EnergyDependence.default(self.use_nn)
-        s_plus, s_minus, k_plus, k_minus, k_cross = energy_dependence.get_params(spectrum, False)
-        mu_s_plus, mu_s_minus, mu_k_plus, mu_k_minus, mu_k_cross = energy_dependence.get_params(spectrum, True)
-        mu = spectrum.get_avg_weight()
+        params = energy_dependence.get_params(spectrum)
 
-        if WARN and s_minus < 0:
+        if WARN and params["sigma_minus"] < 0:
             print("WARNING: sigma perp should not be bigger than sigma parallel squared.")
 
-        if not self.store_info or self.d_i_i[psf.det] is None:
+        if not self.store_info or self.d_i_i[psf.det-1] is None:
             self._prepare_psf(psf)
-        if not self.store_info or self.d_i_q[psf.det] is None:
+        if not self.store_info or self.d_i_q[psf.det-1] is None:
             self._prepare_source_polarization(psf)
 
         # See the comment in spectrum.py that k_cross is = -k_minus / 4 if k_both=0.
 
         i = (
-            + self.d_i_i[psf.det]
-            + s_plus * self.d_zs_i[psf.det]
-            + k_plus * self.d_zk_i[psf.det] 
-            + mu_s_minus * (self.d_qs_q[psf.det] + self.d_us_u[psf.det]) / 2
-            + mu_k_minus * (self.d_qk_q[psf.det] + self.d_uk_u[psf.det]) / 2
+            + self.d_i_i[psf.det-1]
+            + params["sigma_plus"] * self.d_zs_i[psf.det-1]
+            + params["k_plus"] * self.d_zk_i[psf.det-1] 
+            + params["mu_sigma_minus"] * (self.d_qs_q[psf.det-1] + self.d_us_u[psf.det-1]) / 2
+            + params["mu_k_minus"] * (self.d_qk_q[psf.det-1] + self.d_uk_u[psf.det-1]) / 2
         )
         q = (
-            + mu * self.d_i_q[psf.det]
-            + s_minus * self.d_qs_i[psf.det]
-            + k_minus * self.d_qk_i[psf.det]
-            + mu_s_plus * self.d_zs_q[psf.det]
-            + mu_k_plus * self.d_zk_q[psf.det]
-            + mu_k_cross * (self.d_xk_q[psf.det] + self.d_yk_u[psf.det]) / 2
+            + params["mu"] * self.d_i_q[psf.det-1]
+            + params["sigma_minus"] * self.d_qs_i[psf.det-1]
+            + params["k_minus"] * self.d_qk_i[psf.det-1]
+            + params["mu_sigma_plus"] * self.d_zs_q[psf.det-1]
+            + params["mu_k_plus"] * self.d_zk_q[psf.det-1]
+            + params["mu_k_cross"] * (self.d_xk_q[psf.det-1] + self.d_yk_u[psf.det-1]) / 2
         )
         u = (
-            + mu * self.d_i_u[psf.det]
-            + s_minus * self.d_us_i[psf.det]
-            + k_minus * self.d_uk_i[psf.det]
-            + mu_s_plus * self.d_zs_u[psf.det]
-            + mu_k_plus * self.d_zk_u[psf.det]
-            + mu_k_cross * (self.d_yk_q[psf.det] - self.d_xk_u[psf.det]) / 2
+            + params["mu"] * self.d_i_u[psf.det-1]
+            + params["sigma_minus"] * self.d_us_i[psf.det-1]
+            + params["k_minus"] * self.d_uk_i[psf.det-1]
+            + params["mu_sigma_plus"] * self.d_zs_u[psf.det-1]
+            + params["mu_k_plus"] * self.d_zk_u[psf.det-1]
+            + params["mu_k_cross"] * (self.d_yk_q[psf.det-1] - self.d_xk_u[psf.det-1]) / 2
         )
 
         q[np.isnan(q)] = 0
@@ -348,5 +369,5 @@ class Source:
 
     def divide_by_mu(self, q, u, spectrum):
         '''Divide by the detector modulation factor to get the "true" Q and U images. You can pass in either normalized or unnormalized q and u. The spectrum is used to compute the average polarization weight.'''
-        mu_100 = spectrum.get_avg_weight()
-        return q / mu_100, u / mu_100
+        one_over_mu = spectrum.get_avg_one_over_mu(self.use_nn)
+        return q * one_over_mu, u * one_over_mu

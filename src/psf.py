@@ -4,7 +4,6 @@ from scipy.ndimage import rotate
 from scipy.signal import convolve
 from .funcs import *
 from .settings import *
-from ixpeobssim.irf import load_psf
 
 GROUND_BLUR = 2#2.45# Arcsec
 OBSSIM_BLUR = 0#1.8# Arcsec
@@ -18,10 +17,10 @@ class PSF:
         '''Rotate an image backwards by an angle `rotation_deg` in degrees'''
         return np.flip(rotate(image, (rotation_deg + 90), cval=0, reshape=False), axis=1)
 
-    def sky_cal(detector_index, source, rotation, psf_origin="merge-nn", clip=True):
+    def sky_cal(detector, source, rotation, psf_origin="merge-nn", clip=True):
         '''Load the sky-calibrated PSFs.
         ## Arguments
-        - detector_index: 0 for DU1, 1 for DU2, and 2 for DU3
+        - detector: 1 for DU1, 2 for DU2, and 3 for DU3
         - source: a Source object used to set the width of the PSF
         - rotation: angle by which to rotate the PSF to get it into the detector's frame
         - psf_origin: name of the sky calibrated PSF to use
@@ -29,16 +28,16 @@ class PSF:
         ## Returns
         The PSF of the detector.
         '''
-        with fits.open(f'{LEAKAGE_DATA_DIRECTORY}/sky-psfs/{psf_origin}/PSF_MMA{detector_index+1}.fits') as hdul:
+        with fits.open(f'{LEAKAGE_DATA_DIRECTORY}/sky-psfs/{psf_origin}/PSF_MMA{detector}.fits') as hdul:
             initial_pixel_width = hdul[1].header["PIXANG"]
             psf = hdul[1].data
 
-        return PSF(psf, initial_pixel_width, 0, source, rotation, detector_index, clip)
+        return PSF(psf, initial_pixel_width, 0, source, rotation, detector, clip)
 
-    def ground_cal(detector_index, source, rotation, ground_blur=GROUND_BLUR, clip=True):
+    def ground_cal(detector, source, rotation, ground_blur=GROUND_BLUR, clip=True):
         '''Load the ground-calibrated PSFs.
         ## Arguments
-        - detector_index: 0 for DU1, 1 for DU2, and 2 for DU3
+        - detector_index: 1 for DU1, 2 for DU2, and 3 for DU3
         - source: a Source object used to set the width of the PSF
         - rotation: angle by which to rotate the PSF to get it into the detector's frame
         - ground_blur: amount by which to blur the ground PSFs. Default is a value manually tuned to match leakage patterns
@@ -46,16 +45,16 @@ class PSF:
         ## Returns
         The PSF of the detector.
         '''
-        with fits.open(f'../../data/ground_cal_psfs/PSF_MMA{detector_index+1}.fits') as hdul:
+        with fits.open(f'../../data/ground_cal_psfs/PSF_MMA{detector}.fits') as hdul:
             initial_pixel_width = hdul[1].header["PIXANG"]
             psf = hdul[1].data
 
-        return PSF(psf, initial_pixel_width, ground_blur, source, rotation, detector_index, clip)
+        return PSF(psf, initial_pixel_width, ground_blur, source, rotation, detector, clip)
 
-    def obssim(detector_index, source, rotation, obssim_blur=OBSSIM_BLUR, clip=True):
-        '''Load the IXPEobssim PSFs, which at the time of publication were symmetric.
+    def obssim(detector, source, rotation, obssim_blur=OBSSIM_BLUR, clip=True):
+        '''Load the IXPEobssim PSFs, which at the time of publication were symmetric. Requires IXPEobssim to be installed
         ## Arguments
-        - detector_index: 0 for DU1, 1 for DU2, and 2 for DU3
+        - detector_index: 1 for DU1, 2 for DU2, and 3 for DU3
         - source: a Source object used to set the width of the PSF
         - rotation: angle by which to rotate the PSF to get it into the detector's frame
         - ground_blur: amount by which to blur the ground PSFs. Default is a value manually tuned to match leakage patterns
@@ -63,22 +62,23 @@ class PSF:
         ## Returns
         The PSF of the detector.
         '''
+        from ixpeobssim.irf import load_psf
 
-        psf_ixpe = load_psf('ixpe:obssim:v11',du_id=detector_index+1)
+        psf_ixpe = load_psf('ixpe:obssim:v11',du_id=detector)
         initial_pixel_width = 1
         line = np.arange(len(psf_ixpe.x), dtype=float) * initial_pixel_width
         line -= line[-1]/2
         xs, ys = np.meshgrid(line, line)
         psf = psf_ixpe(np.sqrt(xs**2 + ys**2))
 
-        return PSF(psf, initial_pixel_width, obssim_blur, source, rotation, detector_index, clip)
+        return PSF(psf, initial_pixel_width, obssim_blur, source, rotation, detector, clip)
         
-    def __init__(self, image, current_pixel_width, blur_width, source, rotation, detector_index, clip=False):
+    def __init__(self, image, current_pixel_width, blur_width, source, rotation, detector, clip=False):
         '''Get the PSF for a given image. Please don't use this function unless necessary. Use the `sky-cal`, `ground-cal`, and `obssim` functions to load specific PSFs.
         '''
         # Set information about the PSF
         self.pixel_width = current_pixel_width
-        self.det = detector_index
+        self.det = detector
         
         # Rotate to the ra-dec frame
         self.psf = image
