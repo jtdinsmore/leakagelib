@@ -20,10 +20,13 @@ class IXPEData:
         - use_nn: Set to true to use NN data
         - energy_cut: Event energy cut in keV. Default 2--8.
         - time_cut_frac: If not None, must be a tuple (l, h). Only events with time between the lth and hth quantiles will be used.
+        - weight_image: Set to True to weight the Q and U image by weights
+        - bin: Set to False if you don't wish to bin the data. If you passed a source created with Source.no_image, then the bin argument will be ignored and bins will not be produced.
 
         ## Returns:
         A list of IXPEData objects for all three detectors. 
         '''
+
         reasons = []
         for prepath in DATA_DIRECTORIES:
             result, reason = IXPEData.load_all_detectors_with_path(prepath, source, obs_id, energy_cut, time_cut_frac, weight_image, bin)
@@ -47,10 +50,13 @@ class IXPEData:
         - use_nn: Set to true to use NN data
         - energy_cut: Event energy cut in keV. Default 2--8.
         - time_cut_frac: If not None, must be a tuple (l, h). Only events with time between the lth and hth quantiles will be used.
+        - weight_image: Set to True to weight the Q and U image by weights
+        - bin: Set to False if you don't wish to bin the data. If you passed a source created with Source.no_image, then the bin argument will be ignored and bins will not be produced.
 
         ## Returns:
         A list of IXPEData objects for all three detectors. 
         '''
+
         if obs_id is not None:
             if source.use_nn:
                 event_directory = f"{prepath}/{obs_id}/event_nn"
@@ -115,6 +121,9 @@ class IXPEData:
 
     def __init__(self, source, file_name, energy_cut=(2, 8), det2_offset=None, time_cut_frac=None, weight_image=False, bin=True):
         '''Make the IXPE data image for one detector.'''
+
+        if not source.has_image:
+            bin = False
 
         with fits.open(file_name[0]) as hdul:
             events = hdul[1].data

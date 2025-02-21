@@ -113,13 +113,13 @@ class Fitter:
         self.pcube = pcube
         self.energy_dependence = EnergyDependence.default(source.use_nn, use_mu=False)
 
-    def fit(self, full_hessian): # TODO parameters per observation
+    def fit(self, full_hessian):
         # Set up initial fit parameters
         x0 = np.zeros(self.fit_settings.length())
         bounds = []
         for _ in range(self.fit_settings.length()):
             bounds.append((None, None))
-
+        
         index = self.fit_settings.param_to_index("q")
         if index is not None:
             q0, u0, _, _ = self.pcube

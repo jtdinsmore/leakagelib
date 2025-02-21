@@ -168,7 +168,9 @@ class Source:
     
     def no_image(use_nn):
         """Create an empty source for use in initializing a dataset which will not be binned"""
-        return Source(np.array([[0]]), use_nn, 1, 1)
+        source = Source(np.array([[0]]), use_nn, 1, 1)
+        source.has_image = False
+        return source
 
     def __init__(self, image, use_nn, source_size, pixel_size, store_info=False, is_point_source=False):
         '''Loads a Source object from a 2d array.
@@ -198,6 +200,7 @@ class Source:
         self.q_map = np.zeros_like(image)
         self.u_map = np.zeros_like(image)
         self.is_point_source = is_point_source
+        self.has_image = True
         self.invalidate_psf()
         self.invalidate_source_polarization()
 
