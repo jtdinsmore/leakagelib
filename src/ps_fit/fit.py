@@ -141,7 +141,7 @@ class Fitter:
             bounds[index] = (0, 10)
         index = self.fit_settings.param_to_index("bg")
         if index is not None:
-            x0[index] = 0.1
+            x0[index] = 0.01
             bounds[index] = (0, 1)
 
         def chisq(params):
@@ -211,7 +211,6 @@ class Fitter:
             pred_i /= np.mean(pred_i)
 
             # TODO eventually do the fit in some coarse energy bins
-            # TODO figure out weights
 
             PLOT = False
             if PLOT and data.det == 1:
@@ -250,12 +249,9 @@ class Fitter:
             src_q_expected = interp_q((data.evt_xs_antirot-x_antirot, data.evt_ys_antirot-y_antirot))
             src_u_expected = interp_u((data.evt_xs_antirot-x_antirot, data.evt_ys_antirot-y_antirot))
             src_polarization_prob = (1 + data.evt_mus / 2 * (data.evt_qs_antirot * src_q_expected + data.evt_us_antirot * src_u_expected)) / (2 * np.pi)
-
             total_source_prob = src_i_prob * src_polarization_prob
 
             total_log_prob = np.log(total_source_prob * (1 - bg) + bg / (2 * np.pi))
             log_prob += np.nansum(total_log_prob)
         
-        # print(params, log_prob)
-
         return log_prob
