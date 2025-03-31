@@ -11,6 +11,18 @@ from .modulation import *
 IXPE_PIXEL_SIZE = 2.6 # arcsec
 
 class IXPEData:
+    """A class containing the data of a single pointing and a single detector.
+    # Fields
+    * General information
+        - det lists the detector (1, 2, 3)
+        - filename contains the FITS file representing this data set
+        - 
+    * Events
+        - The fields evt_*, where *=xs, ys, qs, us, energies, pis, times, ws, mus, and bg_probs, contain the properties of the individual events. To cut them, use the IXPEData.cut(mask) or IXPEData.cut_region(reg_file) functions. Do not manually edit these fields, as this may cause the IXPEData to go out of sync with itself.
+    * Images
+        - The fields i, q, u, n, w2, and cov_inv contain images of the observation, constructed with the same pixels as the Source provided upon initialization. These fields will exist if you constructed IXPEData with bin=True. If you need to recreate these images, call IXPEData.bin_data().
+    """
+
     def load_all_detectors(source, obs_id, energy_cut=(2, 8), time_cut_frac=None, weight_image=False, bin=True):
         '''Load all detectors
         
@@ -29,7 +41,7 @@ class IXPEData:
 
         reasons = []
         for prepath in DATA_DIRECTORIES:
-            result, reason = IXPEData.load_all_detectors_with_path(prepath, source, obs_id, energy_cut, time_cut_frac, weight_image, bin)
+            result, reason = IXPEData.load_all_detectors_with_path(source, prepath, obs_id, energy_cut, time_cut_frac, weight_image, bin)
             reasons.append(reason)
             if result is not None:
                 return result
@@ -40,14 +52,13 @@ class IXPEData:
         raise Exception(f"Could not find any observations with ID {obs_id}")
     
 
-    def load_all_detectors_with_path(prepath, source, obs_id=None, energy_cut=(2, 8), time_cut_frac=None, weight_image=False, bin=True):
+    def load_all_detectors_with_path(source, prepath, obs_id=None, energy_cut=(2, 8), time_cut_frac=None, weight_image=False, bin=True):
         '''Load all detectors
         
         ## Arguments:
-        - prepath: The path to the data directory. If obs_is not specified, this should point to the folder that contains all observation data. If obs_id is specified, this should point to the superfolder.
         - source: a Source object used to set the size of the IXPEData images. The actual source flux is not read, just whether the source is NN or Mom and the shape of the image. If you do not wish to bin the data, you can pass a Source.no_image
+        - prepath: The path to the data directory. If obs_is not specified, this should point to the folder that contains all observation data. If obs_id is specified, this should point to the superfolder.
         - obs_id: the observation ID to load. Set to None to load whatever data is pointed to by prepath.
-        - use_nn: Set to true to use NN data
         - energy_cut: Event energy cut in keV. Default 2--8.
         - time_cut_frac: If not None, must be a tuple (l, h). Only events with time between the lth and hth quantiles will be used.
         - weight_image: Set to True to weight the Q and U image by weights
@@ -106,7 +117,12 @@ class IXPEData:
             elif "det3" in f:
                 i = 2
             else: continue
-            detectors[i] = IXPEData(source, (f"{event_directory}/{f}", hks[i]), energy_cut, None, time_cut_frac=time_cut_frac, weight_image=weight_image, bin=bin)
+            detectors[i] = IXPEData(source, (f"{event_directory}/{f}", hks[i]), energy_cut, time_cut_frac=time_cut_frac, weight_image=weight_image, bin=bin)
+
+
+        print("Successfully loaded files")
+        for data in detectors:
+            print(f"\t{data.filename}")
 
         return (detectors, "")
     
@@ -119,8 +135,20 @@ class IXPEData:
             polarizations.append(polarization)
         return np.mean(polarizations, axis=0)
 
-    def __init__(self, source, file_name, energy_cut=(2, 8), det2_offset=None, time_cut_frac=None, weight_image=False, bin=True):
-        '''Make the IXPE data image for one detector.'''
+    def __init__(self, source, file_name, energy_cut=(2, 8), time_cut_frac=None, weight_image=False, bin=True):
+        '''Load all detectors
+        
+        ## Arguments:
+        - source: a Source object used to set the size of the IXPEData images. The actual source flux is not read, just whether the source is NN or Mom and the shape of the image. If you do not wish to bin the data, you can pass a Source.no_image
+        - file_name: A tuple (event_name, hk_name). `event_name` points to the event_file. `hk_name` points to the hk file.
+        - energy_cut: Event energy cut in keV. Default 2--8.
+        - time_cut_frac: If not None, must be a tuple (l, h). Only events with time between the lth and hth quantiles will be used.
+        - weight_image: Set to True to weight the Q and U image by weights
+        - bin: Set to False if you don't wish to bin the data. If you passed a source created with Source.no_image, then the bin argument will be ignored and bins will not be produced.
+
+        ## Returns:
+        The detector in question
+        '''
 
         if not source.has_image:
             bin = False
@@ -146,6 +174,11 @@ class IXPEData:
             self.evt_us = events["U"]
             self.evt_energies = 0.02 + events["PI"] * 0.04
             self.evt_pis = events["PI"]
+            self.evt_times = events["TIME"]
+            if "BG_PROB" in events.columns.names:
+                self.evt_bg_probs = events["BG_PROB"]
+            else:
+                self.evt_bg_probs = np.zeros(len(self.evt_xs))
             if source.use_nn:
                 self.evt_mus = get_nn_modf(self.evt_energies)
             else:
@@ -168,13 +201,11 @@ class IXPEData:
         self.pixel_edges -= np.max(self.pixel_edges) / 2
         self.pixel_centers = self.pixel_edges[:-1] + (self.pixel_edges[1] - self.pixel_edges[0]) / 2
         self.counts = len(events)
-        self.temporary_shift_value = np.array([0, 0])
         self.weight_image = weight_image
         self.use_nn = source.use_nn
         self.filename = file_name[0]
 
         self.extract_spectrum()
-        self.compute_background()
         self.bin_data()
 
     def cut(self, mask):
@@ -193,6 +224,8 @@ class IXPEData:
         self.evt_pis = self.evt_pis[mask]
         self.evt_ws = self.evt_ws[mask]
         self.evt_mus = self.evt_mus[mask]
+        self.evt_bg_probs = self.evt_bg_probs[mask]
+        self.evt_times = self.evt_times[mask]
         self.extract_spectrum()
         self.bin_data()
 
@@ -232,6 +265,7 @@ class IXPEData:
         "Recenter the dataset such that the event centroid is at (0, 0)"
         self.evt_xs -= np.nanmean(self.evt_xs)
         self.evt_ys -= np.nanmean(self.evt_ys)
+        self.bin_data()
 
     def iterative_centroid_center(self):
         "Recenter the dataset such that the centroid of the core events is in the center"
@@ -248,24 +282,6 @@ class IXPEData:
 
         self.evt_xs = poses[:,0]
         self.evt_ys = poses[:,1]
-
-    def compute_background(self):
-        # Compute the flux of really distant particles
-        # By default, this flux is not subtracted away, but you can if you want to 
-        poses = np.array((self.evt_xs, self.evt_ys)).transpose()
-        lower_radius = 120 # 2 arcmin
-        upper_radius = 180 # 3 arcmin
-        area = np.pi * (upper_radius**2 - lower_radius**2)
-        dists = np.sqrt(poses[:,0]**2 + poses[:,1]**2)
-        self.bg_flux_annulus = float(np.sum((lower_radius < dists) & (dists < upper_radius))) / area
-
-    def temporary_shift(self, shift):
-        # Shift the image by some amount
-        shift = np.array(shift)
-        current_shift = shift - self.temporary_shift_value
-        self.temporary_shift_value = shift
-        self.evt_xs += current_shift[0]
-        self.evt_ys += current_shift[0]
         self.bin_data()
 
     def bin_data(self):
@@ -353,10 +369,6 @@ class IXPEData:
             [np.cos(2*self.rotation), np.sin(2*self.rotation)],
             [np.sin(-2*self.rotation), np.cos(2*self.rotation)]
         ])
-    
-    def background_subtract(self):
-        '''Subtract the background flux received in a 2-3 arcsec annulus around the point source. Don't subtract any polarization.'''
-        self.i -= self.bg_flux_annulus * self.pixel_size**2
 
     def get_detector_polarization(self):
         '''Get the polarization of a single IXPEdata by averaging over the entire image'''

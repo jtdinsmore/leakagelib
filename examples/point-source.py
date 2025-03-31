@@ -6,11 +6,12 @@ import leakagelib
 
 SOURCE_SIZE = 21 # pixels. For a delta function source, make sure this is odd.
 PIXEL_SIZE = 3 # arcsec
-DETECTOR = 1 # SECOND detector (zero indexed)
+DETECTOR = 2 # Second detector
 
 leakagelib.funcs.override_matplotlib_defaults() # Set the matplotlib defaults to Jack's settings
 
 def plot_images(source, ixpe_data, pred_i, pred_q, pred_u):
+    # Plotting code for the sake of this example.
     fig, axs = plt.subplots(ncols=3,nrows=3, figsize=(14, 12), sharex=True, sharey=True, gridspec_kw=dict(width_ratios=(1.25,1,1.25)))
 
     vmax = np.max(np.abs([ixpe_data.q, ixpe_data.u, pred_q, pred_u]))
@@ -64,19 +65,22 @@ if __name__ == "__main__":
     # Use this line of code to give a uniform polarization to the whole image
     # source.polarize_net((0.25, -0.25))
 
-    # Load the data. Feel free to change the observation id to whatever you want.
-    ixpe_datas = leakagelib.IXPEData.load_all_detectors(source, "01002401") # Gx99
-    # ixpe_datas = leakagelib.IXPEData.load_all_detectors(source, "01002601") # Gx301
-    # ixpe_datas = leakagelib.IXPEData.load_all_detectors(source, "02001901") # LMC
+    # Load the data. This uses LeakageLib's in-built data finding system. To use it, edit the DATA_DIRECTORIES variable in settings.py to point to the folder(s) that contains your IXPE data. If you don't want to use this and instead want to point directly to your own files, use leakagelib.IXPEData.load_all_detectors_with_path.
+    # Make sure you have downloaded the HK data.
+    ixpe_datas = leakagelib.IXPEData.load_all_detectors(source, "01002401") # GX 9+9
+    # ixpe_datas = leakagelib.IXPEData.load_all_detectors(source, "01002601") # GX 301-2
+    # ixpe_datas = leakagelib.IXPEData.load_all_detectors(source, "02001901") # LMC X1
     # ixpe_datas = leakagelib.IXPEData.load_all_detectors(source, "02002399") # 4U 1820-303
     
-    ixpe_data = ixpe_datas[DETECTOR] # It's possible to load data for only one detector, but I'm loading all three and discarding all but the detector we want
+    ixpe_data = ixpe_datas[DETECTOR-1] # It's possible to load data for only one detector, but I'm loading all three and discarding all but the detector we want
+
+    ixpe_data.centroid_center()
 
     # Load the PSF
     psf = leakagelib.PSF.sky_cal(
         DETECTOR,                       # Use the given detector index
         source,                         # Use the Source object just created
-        ixpe_datas[DETECTOR].rotation   # Rotate the source by this amount
+        ixpe_datas[DETECTOR-1].rotation   # Rotate the source by this amount
     )
 
     # Compute predictions

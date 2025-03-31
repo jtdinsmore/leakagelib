@@ -28,6 +28,8 @@ class PSF:
         ## Returns
         The PSF of the detector.
         '''
+        if detector not in [1, 2, 3]:
+            raise Exception("Please pass either 1, 2, or 3 in for detector")
         with fits.open(f'{LEAKAGE_DATA_DIRECTORY}/sky-psfs/{psf_origin}/PSF_MMA{detector}.fits') as hdul:
             initial_pixel_width = hdul[1].header["PIXANG"]
             psf = hdul[1].data

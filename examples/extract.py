@@ -28,7 +28,7 @@ if __name__ == "__main__":
 
     # Load the PSFs
     psfs = []
-    for det in range(3):
+    for det in range(1,4):
         psfs.append(leakagelib.PSF.sky_cal(det, source, det * np.pi / 3 * 2))
 
     # Perform the fit

@@ -84,7 +84,21 @@ class FitResult:
         self.message = result.message
         self.fit_settings = fit_settings
 
+    def get_pd_pa(self):
+        q = self.params[("q",None)]
+        u = self.params[("u",None)]
+        q_index = self.fit_settings.param_to_index("q")
+        u_index = self.fit_settings.param_to_index("u")
+        q_unc2 = self.cov[q_index,q_index]
+        u_unc2 = self.cov[u_index,u_index]
+        pd = np.sqrt(q**2 + u**2)
+        pa = np.arctan2(u, q)/2
+        pd_unc = np.sqrt(q**2 * q_unc2 + u**2 * u_unc2) / pd
+        pa_unc = np.sqrt(q**2 * u_unc2 + u**2 * q_unc2) / pd**2 / 2
+        return pd, pa, pd_unc, pa_unc
+
     def __str__(self):
+        pd, pa, pd_unc, pa_unc = self.get_pd_pa()
         text = "FitResult:\n"
         for ((name, index), value) in self.params.items():
             param_index = self.fit_settings.param_to_index(name, index)
@@ -96,6 +110,9 @@ class FitResult:
                 text += f"\t{name} = {value} +/- {unc}\n"
             else:
                 text += f"\t{name} ({index}) = {value} +/- {unc}\n"
+        text += "\nPolarization:\n"
+        text += f"\tPD: {pd} +/- {pd_unc}\n"
+        text += f"\tPA: {pa*180/np.pi} deg +/- {pa_unc*180/np.pi}\n"
         text += f"fun: {self.fun}\n"
         text += self.message
         return text
@@ -161,8 +178,6 @@ class Fitter:
                 return -2 * self.log_prob(full_params)
             hessian = Hessian(hess_func)((results.x[0], results.x[1]))
 
-
-        print("Done")
         return FitResult(results, hessian, self.fit_settings)
 
 
@@ -251,7 +266,11 @@ class Fitter:
             src_polarization_prob = (1 + data.evt_mus / 2 * (data.evt_qs_antirot * src_q_expected + data.evt_us_antirot * src_u_expected)) / (2 * np.pi)
             total_source_prob = src_i_prob * src_polarization_prob
 
-            total_log_prob = np.log(total_source_prob * (1 - bg) + bg / (2 * np.pi))
+            bkg_polarization_prob = 1 / (2 * np.pi) # Unpolarized background
+
+            bkg_prob = bg + (1-bg) * data.evt_bg_probs
+
+            total_log_prob = np.log(total_source_prob * (1 - bkg_prob) + bkg_polarization_prob * bkg_prob)
             log_prob += np.nansum(total_log_prob)
         
         return log_prob

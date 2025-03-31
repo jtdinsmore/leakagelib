@@ -11,8 +11,7 @@ import leakagelib
 
 leakagelib.funcs.override_matplotlib_defaults()
 
-DETECTOR = 2 # THIRD detector (zero-indexed)
-
+DETECTOR = 3
 SOURCE_SIZE = 101 # Pixels
 PIXEL_SIZE = 1 # arcsec. Since we aren't using data, it's OK to make it this small
 
@@ -74,7 +73,7 @@ def plot(settings):
 
     ax.set_ylim(0, 1)
     ax.set_xlim(pd_bins[0], pd_bins[-1])
-    ax.set_xlabel("$\mu$-corrected polarization degree (PD) [%]")
+    ax.set_xlabel("$\\mu$-corrected polarization degree (PD) [%]")
     ax.set_ylabel("Image fraction with larger PD")
     ax.legend()
 
