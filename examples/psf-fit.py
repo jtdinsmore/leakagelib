@@ -20,7 +20,7 @@ def fit(energy_cut=(2,8)):
         data.cut_region(f"psf-region.reg") 
 
         # Center coordinates on the object
-        data.centroid_center() 
+        data.centroid_center()
 
         # If you wish to make further cuts to the data, use the data.cut function and pass in an event mask. You can use the event fields (see documentation of IXPEData) to create these masks, as illustrated below. You can also load the FITS file itself and create a mask directly from the file. IXPEData.filename gives the file's name
         # This example cuts background particles from the data set. If you don't do this, LeakageLib will de-weight the background instead, which is better in principle. That's why these lines are commented out.

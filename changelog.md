@@ -7,8 +7,10 @@
 
 ## Features
 * Point source Q, U fitting
-* Background subtraction
+* Background removal
 * Allowed cutting events by region
 * Allowed generation of leakage maps without using mu
 * Print statements for debugging which files are being loaded
 * More documentation
+* Created a new function to recenter the data set to a specific position
+* Created a new function to load the exposure map

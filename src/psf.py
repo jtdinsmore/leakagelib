@@ -22,7 +22,7 @@ class PSF:
         ## Arguments
         - detector: 1 for DU1, 2 for DU2, and 3 for DU3
         - source: a Source object used to set the width of the PSF
-        - rotation: angle by which to rotate the PSF to get it into the detector's frame
+        - rotation: angle (radians) by which to rotate the PSF to get it into the detector's frame
         - psf_origin: name of the sky calibrated PSF to use
 
         ## Returns
@@ -41,7 +41,7 @@ class PSF:
         ## Arguments
         - detector_index: 1 for DU1, 2 for DU2, and 3 for DU3
         - source: a Source object used to set the width of the PSF
-        - rotation: angle by which to rotate the PSF to get it into the detector's frame
+        - rotation: angle (radians) by which to rotate the PSF to get it into the detector's frame
         - ground_blur: amount by which to blur the ground PSFs. Default is a value manually tuned to match leakage patterns
 
         ## Returns
@@ -58,7 +58,7 @@ class PSF:
         ## Arguments
         - detector_index: 1 for DU1, 2 for DU2, and 3 for DU3
         - source: a Source object used to set the width of the PSF
-        - rotation: angle by which to rotate the PSF to get it into the detector's frame
+        - rotation: angle (radians) by which to rotate the PSF to get it into the detector's frame
         - ground_blur: amount by which to blur the ground PSFs. Default is a value manually tuned to match leakage patterns
 
         ## Returns
@@ -96,19 +96,12 @@ class PSF:
             self.clip(clip_size)
 
         # Blur
-        xs, ys = np.meshgrid(self.pixel_centers, self.pixel_centers)
-        self.blur = blur_width
+        self.unblurred_psf = np.copy(self.psf)
+        self.unblurred_psf[np.isnan(self.unblurred_psf)] = 0
         if blur_width is not None and blur_width > 0:
-            dist2 = xs * xs + ys * ys
-
-            blur = np.exp(-(dist2) / (2 * blur_width**2)) # Gaussian
-            # blur = 1 / (1 + dist2/blur_width**2) # Lorentzian
-
-            blur /= np.sum(blur)
-            self.psf = convolve(self.psf, blur, mode="same")
-
-        # Compute derivatives
-        self.compute_kernels(source.use_nn)
+            self.blur(blur_width)
+        else:
+            self.compute_kernels()
 
         # Zoom
         zoom_ratio = current_pixel_width / source.pixel_size
@@ -132,6 +125,21 @@ class PSF:
             self.clip(len(source.pixel_centers) * 2)
         
         assert(self.psf.shape[0] % 2 == 1)
+
+    def blur(self, sigma):
+        """Blur the PSF by a Gaussian with standard deviation sigma (arcsec)."""
+        # Blur
+        if sigma == 0:
+            self.psf = np.copy(self.unblurred_psf)
+        else:
+            xs, ys = np.meshgrid(self.pixel_centers, self.pixel_centers)
+            dist2 = xs * xs + ys * ys
+            blur = np.exp(-(dist2) / (2 * sigma**2)) # Gaussian
+            blur /= np.sum(blur)
+            self.psf = convolve(self.unblurred_psf, blur, mode="same")
+
+        # Compute derivatives
+        self.compute_kernels()
 
     def clip(self, new_width):
         '''Clip the PSF to a new width in pixels'''
@@ -169,7 +177,7 @@ class PSF:
         self.psf /= np.sum(self.psf)
         self.pixel_centers = self.pixel_centers[middle-new_width//2:middle+new_width//2+1]
 
-    def compute_kernels(self, use_nn):
+    def compute_kernels(self):
         '''Compute derivatives of the PSF.'''
         self.d_zs = convolve(self.psf, KERNEL_ZS / self.pixel_width**2, mode="same") / np.nansum(self.psf)
         self.d_qs = convolve(self.psf, KERNEL_QS / self.pixel_width**2, mode="same") / np.nansum(self.psf)

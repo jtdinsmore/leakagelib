@@ -259,6 +259,10 @@ class Source:
         self.u_map = u
         self.invalidate_source_polarization()
 
+    def convolve_psf(self, psf):
+        '''Convolve this source image with the PSF and return the image. The provided PSF must be constructed with this source object.'''
+        return convolve(self.source, psf.psf, mode="same")
+
     def _prepare_psf(self, psf):
         '''Prepare the leakage maps for the given source'''
         self.d_i_i[psf.det-1] = convolve(self.source, psf.psf, mode="same")

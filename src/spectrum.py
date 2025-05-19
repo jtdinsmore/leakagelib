@@ -151,6 +151,7 @@ class EnergyDependence:
         sigma_perp2_vals = spectrum.sample_from_interpolator(self.interpolator_perp)
         k_parallel4 = spectrum.sample_from_interpolator(self.interpolator_kurtosis)
         mu_vals = spectrum.sample_from_interpolator(self.interpolator_mu)
+        mu_vals[np.isnan(mu_vals)] = 0
 
         k_perp4 = 3 * sigma_perp2_vals**2
         k_both = 0

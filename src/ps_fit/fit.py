@@ -227,34 +227,6 @@ class Fitter:
 
             # TODO eventually do the fit in some coarse energy bins
 
-            PLOT = False
-            if PLOT and data.det == 1:
-                import matplotlib.pyplot as plt
-                vmax = 0.15
-                fig, ((ax1, ax3), (ax2, ax4)) = plt.subplots(ncols=2, nrows=2, sharex=True,sharey=True)
-                
-                bins = np.linspace(self.source.pixel_centers[0], self.source.pixel_centers[-1], 17)
-                ax1.pcolormesh(-self.source.pixel_centers, -self.source.pixel_centers, np.transpose(pred_q), vmin=-vmax, vmax=vmax, cmap="RdBu")
-                ax3.pcolormesh(-self.source.pixel_centers, -self.source.pixel_centers, np.transpose(pred_u), vmin=-vmax, vmax=vmax, cmap="RdBu")
-                q_bin = np.histogram2d(data.evt_xs_antirot, data.evt_ys_antirot, bins, weights=data.evt_qs_antirot)[0]
-                u_bin = np.histogram2d(data.evt_xs_antirot, data.evt_ys_antirot, bins, weights=data.evt_us_antirot)[0]
-                c_bin = np.histogram2d(data.evt_xs_antirot, data.evt_ys_antirot, bins)[0].astype(float)
-                ax2.pcolormesh(bins, bins, np.transpose(q_bin/c_bin), vmin=-vmax, vmax=vmax, cmap="RdBu")
-                ax4.pcolormesh(bins, bins, np.transpose(u_bin/c_bin), vmin=-vmax, vmax=vmax, cmap="RdBu")
-
-                # bins = np.linspace(self.source.pixel_centers[0], self.source.pixel_centers[-1], 50)
-                # ax1.pcolormesh(-self.source.pixel_centers, -self.source.pixel_centers, np.transpose(pred_i), vmin=0)
-                # # ax2.hist2d(data.evt_xs_antirot, data.evt_ys_antirot, 40, vmin=0)
-                # c = np.histogram2d(data.evt_xs_antirot, data.evt_ys_antirot, bins)[0]
-                # ax2.pcolormesh(bins, bins, np.transpose(c))
-                for ax in fig.axes:
-                    ax.set_aspect("equal")
-                    # ax1.set_xlim(-50,50)
-                    # ax2.set_ylim(-50,50)
-                fig.savefig("test.png")
-                import time
-                time.sleep(0.5)
-
             # Make interpolation maps
             interp_i = RegularGridInterpolator((-self.source.pixel_centers, -self.source.pixel_centers), pred_i, bounds_error=False)
             interp_q = RegularGridInterpolator((-self.source.pixel_centers, -self.source.pixel_centers), pred_q, bounds_error=False)

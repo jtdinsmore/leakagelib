@@ -1,8 +1,9 @@
 import numpy as np
-from astropy.io import fits
 import os
 from scipy.linalg import pinvh
-
+from scipy.interpolate import RegularGridInterpolator
+from astropy.io import fits
+from astropy.wcs import WCS
 from .spectrum import Spectrum
 from .region import make_region
 from .settings import DATA_DIRECTORIES
@@ -18,7 +19,7 @@ class IXPEData:
         - filename contains the FITS file representing this data set
         - 
     * Events
-        - The fields evt_*, where *=xs, ys, qs, us, energies, pis, times, ws, mus, and bg_probs, contain the properties of the individual events. To cut them, use the IXPEData.cut(mask) or IXPEData.cut_region(reg_file) functions. Do not manually edit these fields, as this may cause the IXPEData to go out of sync with itself.
+        - The fields evt_*, where *=xs, ys, qs, us, energies, pis, times, ws, mus, and bg_probs, contain the properties of the individual events. Positions are measured in arcsec; q and u are the IXPE-standard 2cos(psi) and 2sin(psi). To cut them, use the IXPEData.cut(mask) or IXPEData.cut_region(reg_file) functions. Do not manually edit these fields, as this may cause the IXPEData to go out of sync with itself.
     * Images
         - The fields i, q, u, n, w2, and cov_inv contain images of the observation, constructed with the same pixels as the Source provided upon initialization. These fields will exist if you constructed IXPEData with bin=True. If you need to recreate these images, call IXPEData.bin_data().
     """
@@ -106,22 +107,18 @@ class IXPEData:
         for f in os.listdir(event_directory):
             if not f.endswith(".fits"): continue
             if not f.startswith("ixpe"): continue
-            if not "det2" in f: continue
-            detectors[1] = IXPEData(source, (f"{event_directory}/{f}", hks[1]), energy_cut, time_cut_frac=time_cut_frac, weight_image=weight_image)
-
-        for f in os.listdir(event_directory):
-            if not f.endswith(".fits"): continue
-            if not f.startswith("ixpe"): continue
             if "det1" in f:
                 i = 0
+            elif "det2" in f:
+                i = 1
             elif "det3" in f:
                 i = 2
             else: continue
             detectors[i] = IXPEData(source, (f"{event_directory}/{f}", hks[i]), energy_cut, time_cut_frac=time_cut_frac, weight_image=weight_image, bin=bin)
 
-
         print("Successfully loaded files")
         for data in detectors:
+            if data is None: continue
             print(f"\t{data.filename}")
 
         return (detectors, "")
@@ -156,6 +153,7 @@ class IXPEData:
         with fits.open(file_name[0]) as hdul:
             events = hdul[1].data
             self.det = int(hdul[1].header["DETNAM"][2:])
+            self.obs_id = hdul[1].header["OBS_ID"]
 
             energies = 0.02 + events["PI"] * 0.04
             # energy mask
@@ -175,6 +173,7 @@ class IXPEData:
             self.evt_energies = 0.02 + events["PI"] * 0.04
             self.evt_pis = events["PI"]
             self.evt_times = events["TIME"]
+            self.evt_exposures = np.ones_like(self.evt_xs)
             if "BG_PROB" in events.columns.names:
                 self.evt_bg_probs = events["BG_PROB"]
             else:
@@ -222,6 +221,7 @@ class IXPEData:
         self.evt_us = self.evt_us[mask]
         self.evt_energies = self.evt_energies[mask]
         self.evt_pis = self.evt_pis[mask]
+        self.evt_exposures = self.evt_exposures[mask]
         self.evt_ws = self.evt_ws[mask]
         self.evt_mus = self.evt_mus[mask]
         self.evt_bg_probs = self.evt_bg_probs[mask]
@@ -260,6 +260,12 @@ class IXPEData:
         averaged_weights = binned_weights / np.maximum(binned_counts, 1)
 
         self.spectrum = Spectrum(energies, binned_counts, averaged_weights)
+
+    def explicit_center(self, x, y):
+        "Recenter the dataset to position x, y in pixels"
+        self.evt_xs -= x * IXPE_PIXEL_SIZE
+        self.evt_ys -= y * IXPE_PIXEL_SIZE
+        self.bin_data()
 
     def centroid_center(self):
         "Recenter the dataset such that the event centroid is at (0, 0)"
@@ -376,3 +382,39 @@ class IXPEData:
         normalized_q = self.q / self.i
         normalized_u = self.u / self.i
         return np.array([np.nanmean(normalized_q[mask]), np.nanmean(normalized_u[mask])])
+
+    def load_expmap(self, filename=None):
+        '''Loads the exposure map and evaluates it for every pixel in the image.
+        # Arguments
+        * filename: location of the exposure map. If none, the map is assumed to lie in the auxil folder, which is assumed to lie in the same directory as the hk and event_l2 folders.
+        
+        WARNING: This function should not be run after the image has been centered.
+        '''
+        if filename is None:
+            event_l2_folder = "/".join(self.filename.split("/")[:-1])
+            auxil_folder = f"{event_l2_folder}/../auxil"
+            if not os.path.exists(auxil_folder):
+                raise Exception(f"Could not find the exposure map files in {auxil_folder}. Please use the filename argument to provide an explicit location")
+            for f in os.listdir(auxil_folder):
+                if "expmap2" not in f: continue
+                if str(self.obs_id) not in f: continue
+                if f"det{self.det}" not in f: continue
+                filename = f"{auxil_folder}/{f}"
+        
+        with fits.open(filename) as hdul:
+            image = hdul[0].data
+            wcs = WCS(hdul[0].header)
+            upper_left, lower_right = wcs.all_pix2world([(0, 0), (image.shape[1]-1, image.shape[0]-1)], 0)
+            ras = np.linspace(upper_left[0], lower_right[0], image.shape[0])
+            decs = np.linspace(upper_left[1], lower_right[1], image.shape[1])
+            expmap = RegularGridInterpolator((ras, decs), np.transpose(image))
+
+        with fits.open(self.filename) as hdul:
+            # Retrieve the connection between x/y and ra/dec
+            colx = hdul[1].columns["X"]
+            coly = hdul[1].columns["Y"]
+            stretch = np.cos(coly.coord_ref_value * np.pi / 180)
+            ras = (self.evt_xs / IXPE_PIXEL_SIZE - colx.coord_ref_point) * stretch * colx.coord_inc + colx.coord_ref_value
+            decs = (self.evt_ys / IXPE_PIXEL_SIZE - coly.coord_ref_point) * coly.coord_inc + coly.coord_ref_value
+
+        self.evt_exposures = expmap((ras, decs))
