@@ -65,6 +65,11 @@ def fit_point_source(datas, fixed_qu=None, fixed_position=None, fixed_blur=0, fi
         psfs = [
             PSF.sky_cal(det, source, 0) for det in range(1, 4)
         ]
+    
+    # Blur the PSFs
+    if fixed_blur != 0:
+        for psf in psfs:
+            psf.blur(fixed_blur)
 
     # Make the fit structure
     fit_settings = FitSettings(fixed_qu, fixed_position, fixed_blur, fixed_bg, len(datas))
@@ -188,13 +193,17 @@ class Fitter:
         raw_log_prob which actually performs the prediction.
         """
 
-        # Blur the PSF
+        # Blur the PSF. This should happen only if you're fitting for the blur parameter. If you want
+        # to fix the blur parameter at a nonzero value, you should pass fixed_blur and the blurring
+        # will happen at initialization of Fitter.
+
+        # Note: it might be better to fit blur with I only so that polarization and flux signals
+        # don't get crossed
         index = self.fit_settings.param_to_index("sigma")
         if index is not None:
             blur = params[index]
             for psf in self.psfs:
-                psf.blur # TODO blur the PSF
-                raise NotImplementedError()
+                psf.blur(blur)
 
         return self.raw_log_prob(params)
 
