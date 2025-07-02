@@ -24,7 +24,7 @@ class IXPEData:
     """
 
     def load_all_detectors(source, obs_id, event_dir=None, energy_cut=(2, 8), weight_image=False, bin=True):
-        '''Load all detectors
+        '''Load all detectors corresponding to a specific obs_id
         
         ## Arguments:
         - source: a `Source` object used to set the size of the `IXPEData` images. The actual source flux is not read, just whether the source is NN or Mom and the shape of the image. If you do not wish to bin the data, you can pass a `Source.no_image`
@@ -133,7 +133,7 @@ class IXPEData:
         return np.mean(polarizations, axis=0)
 
     def __init__(self, source, file_name, energy_cut=(2, 8), weight_image=False, bin=True):
-        '''Load all detectors
+        '''Load the data from a single IXPE file
         
         ## Arguments:
         - `source`: a `Source` object used to set the size of the `IXPEData` images. The actual source flux is not read, just whether the source is NN or Mom and the shape of the image. If you do not wish to bin the data, you can pass a `Source.no_image`

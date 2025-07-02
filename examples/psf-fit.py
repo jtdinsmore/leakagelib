@@ -7,10 +7,10 @@ import leakagelib
 
 def fit(energy_cut=(2,8)):
     source = leakagelib.source.Source.no_image(
-        False  # True if you would like to use neural net-reconstructed data in the future, and False if you would like to use Mom-reconstructed data.
+        True  # True if you would like to use neural net-reconstructed data in the future, and False if you would like to use Mom-reconstructed data.
     )
 
-    # Load the data. This uses LeakageLib's in-built data finding system. To use it, edit the DATA_DIRECTORIES variable in settings.py to point to the folder(s) that contains your IXPE data. If you don't want to use this and instead want to point directly to your own files, use leakagelib.IXPEData.load_all_detectors_with_path.
+    # Load the data. This uses LeakageLib's in-built data finding system. To use it, edit the DATA_DIRECTORIES variable in settings.py to point to the folder(s) that contains your IXPE data. If you don't want to use this and instead want to point directly to your own files, use leakagelib.IXPEData.load_all_detectors_with_path. If you want to load one specific file, use the constructor leakagelib.IXPEData.
     # Make sure you have downloaded the HK data.
     datas = leakagelib.IXPEData.load_all_detectors(source, "01002401", energy_cut=energy_cut, bin=False)
 
@@ -31,12 +31,10 @@ def fit(energy_cut=(2,8)):
         # data.cut(event_mask)
 
     # Make a "fit settings" object, which encodes fit components
-    settings = leakagelib.ps_fit.FitSettings()
-    settings.add_point_source(datas[0]) # Point source component
+    settings = leakagelib.ps_fit.FitSettings(datas)
+    settings.add_point_source() # Point source component
     settings.add_background() # Background component
     settings.fix_qu("bkg", (0, 0)) # Set the background to be unpolarized
-    settings.add_background(name="pbkg") # Make an additional component for the particles. This is not necessary if you cut all the particles using the lines commented out above
-    settings.set_particles("pbkg", True)
     settings.apply_circular_roi(80 * 2.6) # Tell the fitter how big the region is, so that it can normalize the background PDF. This number must be the ROI size in arcsec.
 
     fitter = leakagelib.ps_fit.Fitter(datas, settings)
