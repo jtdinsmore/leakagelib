@@ -51,8 +51,8 @@ class BoxRegion(Region):
     
     def check_inside_absolute(self, x, y):
         # Assume x and y are in degrees
-        l_alpha = self.get_alpha(x, y, self.l * np.cos(self.angle), -self.l * np.sin(self.angle))
-        w_alpha = self.get_alpha(x, y, -self.w * np.sin(self.angle), -self.w * np.cos(self.angle))
+        l_alpha = self.get_alpha(x, y, self.l * np.cos(self.angle), self.l * np.sin(self.angle))
+        w_alpha = self.get_alpha(x, y, self.w * np.sin(self.angle), -self.w * np.cos(self.angle))
         return (np.abs(l_alpha) < 0.5) & (np.abs(w_alpha) < 0.5)
 
     
@@ -137,15 +137,14 @@ class EllipseRegion(Region):
             ra, dec, a, b, angle = line[8:-2].split(",")
             self.ra = float(ra)
             self.dec = float(dec)
-            self.stretch = np.cos(self.dec * np.pi / 180)
             self.a = float(a)
             self.b = float(b)
             self.angle = float(angle) * np.pi / 180
             self.success = True
     
     def check_inside_absolute(self, x, y):
-        rot_x = np.cos(self.angle) * (x - self.ra) * self.stretch - np.sin(self.angle) * (y - self.dec)
-        rot_y = np.sin(self.angle) * (x - self.ra) * self.stretch + np.cos(self.angle) * (y - self.dec)
+        rot_x = np.sin(self.angle) * (x - self.ra) + np.cos(self.angle) * (y - self.dec)
+        rot_y = -np.cos(self.angle) * (x - self.ra) + np.sin(self.angle) * (y - self.dec)
         d = rot_x**2 / self.a**2 + rot_y**2 / self.b**2
         return d < 1
     

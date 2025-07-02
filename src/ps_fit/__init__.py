@@ -3,5 +3,6 @@
 Jack Dinsmore 2025
 """
 
-from .fit import fit_point_source
-from .pcube import get_pcube
+from .fitter import Fitter
+from .fit_settings import FitSettings
+from .pcube import get_pcube, get_optimal

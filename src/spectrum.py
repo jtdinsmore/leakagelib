@@ -138,6 +138,21 @@ class EnergyDependence:
             mu = np.ones_like(mu)
 
         return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, mu)
+    
+    def evaluate(self, energies):
+        '''Get the leakage parameters for an array of event energies
+        # Arguments: 
+            * energies: array of event energies in keV
+
+        # Returns:
+            * A tuple of sigma_parallels, sigma_perps, and kurts.
+        '''
+        return (
+            self.interpolator_parallel(energies),
+            self.interpolator_perp(energies),
+            self.interpolator_kurtosis(energies)
+        )
+
 
     def get_params(self, spectrum):
         '''Get the average sigma plus and sigma minus for a given source.

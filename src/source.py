@@ -1,10 +1,27 @@
 import numpy as np
+from scipy.interpolate import RegularGridInterpolator
 from astropy.io import fits
-from scipy.signal import convolve
+from scipy.signal import convolve as scipy_convolve
 from .spectrum import EnergyDependence
 from .funcs import integrate_zoom
 
 WARN = True
+
+def convolve(src, kernel, fix_edges=True):
+    """
+    Convolve an image with a convolution kernel.
+    # Arguments
+    * src: the source image
+    * kernel: the convolution kernel
+    * fix_edges: set to True to remove edge effects that occur when the summed kernel is not zero.
+        Default: True
+    """
+    convolved = scipy_convolve(src, kernel, mode="same")
+    if fix_edges:
+        flat = np.ones_like(src)
+        convolved /= scipy_convolve(flat, kernel, mode="same")
+
+    return convolved
 
 def pad_image(image, num_pixels):
     '''Zero-pad an image'''
@@ -146,6 +163,19 @@ class Source:
         else:
             image[num_pixels//2, num_pixels//2] = 1
         return Source(image, use_nn, num_pixels, pixel_size, store_info, is_point_source=True)
+
+    def uniform(use_nn, num_pixels, pixel_size, store_info=False):
+        '''Creates a Source object representing a uniform background
+
+        # Arguments:
+            - `use_nn`: True if you will later choose to run your results with NN-reconstructed data. False for moments-reconstructed data
+            - `num_pixels`: number of pixels in the output image. An integer is required and an odd integer is recommended.
+            - `pixel_size`: width of each pixel in arcseconds.
+            - `store_info`: Set to true to store info from the source and PSF to speed up some computations. This forces you to manually call `invalidate_psf` and `invalidate_source_polarization` if you use it.
+        '''
+        image = np.ones((num_pixels, num_pixels))
+        image /= np.sum(image)
+        return Source(image, use_nn, num_pixels, pixel_size, store_info, is_uniform=True)
     
     def gaussian(use_nn, num_pixels, pixel_size, sigma, store_info=False):
         '''Creates a Gaussian-shaped Source object
@@ -172,7 +202,7 @@ class Source:
         source.has_image = False
         return source
 
-    def __init__(self, image, use_nn, source_size, pixel_size, store_info=False, is_point_source=False):
+    def __init__(self, image, use_nn, source_size, pixel_size, store_info=False, is_point_source=False, is_uniform=False):
         '''Loads a Source object from a 2d array.
 
         ARGUMENTS:
@@ -193,6 +223,7 @@ class Source:
         self.psr_coord = None
         self.store_info = store_info
         self.use_nn = use_nn
+        self.fit_roi = None
 
         if self.source.shape != (source_size, source_size):
             raise Exception("Your source image must have shape (source_size, source_size)")
@@ -203,12 +234,15 @@ class Source:
         self.q_map = np.zeros_like(image)
         self.u_map = np.zeros_like(image)
         self.is_point_source = is_point_source
+        self.is_uniform = is_uniform
         self.has_image = True
         self.invalidate_psf()
         self.invalidate_source_polarization()
+        self.invalidate_event_data()
 
     def invalidate_psf(self):
-        '''Invalidate the stored data concerning the source flux.'''
+        '''Invalidate the stored data concerning the source flux. This should be done whenever
+        you change the PSF, e.g. by blurring it'''
         self.d_i_i = [None, None, None]
         self.d_zs_i = [None, None, None]
         self.d_qs_i = [None, None, None]
@@ -220,7 +254,8 @@ class Source:
         self.d_yk_i = [None, None, None]
 
     def invalidate_source_polarization(self):
-        '''Invalidate the stored data concerning the source polarization.'''
+        '''Invalidate the stored data concerning the source polarization. This should be done
+        whenever you change the source polarization map'''
         self.d_i_q  = [None, None, None]
         self.d_i_u  = [None, None, None]
         self.d_zs_q = [None, None, None]
@@ -236,8 +271,21 @@ class Source:
         self.d_us_u = [None, None, None]
         self.d_uk_u = [None, None, None]
 
+    def invalidate_event_data(self):
+        '''Invalidate the stored data concerning the events. This should be done whenever you change
+        the event positions or the number of events'''
+        self.evt_d_i_i = {}
+        self.evt_d_zs_i = {}
+        self.evt_d_qs_i = {}
+        self.evt_d_us_i = {}
+        self.evt_d_zk_i = {}
+        self.evt_d_qk_i = {}
+        self.evt_d_uk_i = {}
+        self.evt_d_xk_i = {}
+        self.evt_d_yk_i = {}
+
     def polarize_file(self, file_name, source_pixel_size=None):
-        '''Add a source polarization to the incoming photons. The provided file must either be a fits file with Q in hdul[1] and U in hdul[2], or a numpy array of shape (i, j, 2), where the last axis contains the q and u coordinates of the polarization.'''
+        '''Add a source polarization to the incoming photons. The provided file must either be a fits file with Q in hdul[1] and U in hdul[2], or a numpy array of shape (i, j, 2), where the last axis contains the q and u coordinates of the polarization. This automatically calls invalidate_source_polarization'''
 
         image = _process_file(file_name, self.source_size, self.pixel_size, None, [1,2], rescale=True)[0]
         
@@ -247,13 +295,13 @@ class Source:
         self.invalidate_source_polarization()
 
     def polarize_array(self, qu_map):
-        '''Add a source polarization to the incoming photons. The provided array must have shape (2 ,i, j), where the last axis contains the q and u coordinates of the polarization.'''
+        '''Add a source polarization to the incoming photons. The provided array must have shape (2 ,i, j), where the last axis contains the q and u coordinates of the polarization. This automatically calls invalidate_source_polarization'''
         self.q_map = qu_map[0]
         self.u_map = qu_map[1]
         self.invalidate_source_polarization()
 
     def polarize_net(self, stokes):
-        '''Add uniform polarization to the entire image'''
+        '''Add uniform polarization to the entire image. This automatically calls invalidate_source_polarization'''
         q, u = stokes
         self.q_map = q
         self.u_map = u
@@ -261,21 +309,21 @@ class Source:
 
     def convolve_psf(self, psf):
         '''Convolve this source image with the PSF and return the image. The provided PSF must be constructed with this source object.'''
-        return convolve(self.source, psf.psf, mode="same")
+        return convolve(self.source, psf.psf)
 
     def _prepare_psf(self, psf):
         '''Prepare the leakage maps for the given source'''
-        self.d_i_i[psf.det-1] = convolve(self.source, psf.psf, mode="same")
+        self.d_i_i[psf.det-1] = convolve(self.source, psf.psf)
 
-        self.d_zs_i[psf.det-1] = convolve(self.source, psf.d_zs, mode="same")
-        self.d_qs_i[psf.det-1] = convolve(self.source, psf.d_qs, mode="same")
-        self.d_us_i[psf.det-1] = convolve(self.source, psf.d_us, mode="same")
+        self.d_zs_i[psf.det-1] = convolve(self.source, psf.d_zs, fix_edges=False)
+        self.d_qs_i[psf.det-1] = convolve(self.source, psf.d_qs, fix_edges=False)
+        self.d_us_i[psf.det-1] = convolve(self.source, psf.d_us, fix_edges=False)
 
-        self.d_zk_i[psf.det-1] = convolve(self.source, psf.d_zk, mode="same")
-        self.d_qk_i[psf.det-1] = convolve(self.source, psf.d_qk, mode="same")
-        self.d_uk_i[psf.det-1] = convolve(self.source, psf.d_uk, mode="same")
-        self.d_xk_i[psf.det-1] = convolve(self.source, psf.d_xk, mode="same")
-        self.d_yk_i[psf.det-1] = convolve(self.source, psf.d_yk, mode="same")
+        self.d_zk_i[psf.det-1] = convolve(self.source, psf.d_zk, fix_edges=False)
+        self.d_qk_i[psf.det-1] = convolve(self.source, psf.d_qk, fix_edges=False)
+        self.d_uk_i[psf.det-1] = convolve(self.source, psf.d_uk, fix_edges=False)
+        self.d_xk_i[psf.det-1] = convolve(self.source, psf.d_xk, fix_edges=False)
+        self.d_yk_i[psf.det-1] = convolve(self.source, psf.d_yk, fix_edges=False)
 
 
     def _prepare_source_polarization(self, psf):
@@ -301,25 +349,59 @@ class Source:
 
             self.d_us_u[psf.det-1] = self.d_us_i[psf.det-1] * u_src
             self.d_uk_u[psf.det-1] = self.d_uk_i[psf.det-1] * u_src
+        elif self.is_uniform:
+            q_src, u_src = np.mean(self.q_map), np.mean(self.u_map)
+            self.d_i_q[psf.det-1] = self.d_i_i[psf.det-1] * q_src
+            self.d_i_u[psf.det-1] = self.d_i_i[psf.det-1] * u_src
+
+            self.d_zs_q[psf.det-1] = self.d_zs_i[psf.det-1] * 0
+            self.d_zk_q[psf.det-1] = self.d_zk_i[psf.det-1] * 0
+            self.d_xk_q[psf.det-1] = self.d_xk_i[psf.det-1] * 0
+            self.d_yk_q[psf.det-1] = self.d_yk_i[psf.det-1] * 0
+
+            self.d_zs_u[psf.det-1] = self.d_zs_i[psf.det-1] * 0
+            self.d_zk_u[psf.det-1] = self.d_zk_i[psf.det-1] * 0
+            self.d_xk_u[psf.det-1] = self.d_xk_i[psf.det-1] * 0
+            self.d_yk_u[psf.det-1] = self.d_yk_i[psf.det-1] * 0
+
+            self.d_qs_q[psf.det-1] = self.d_qs_i[psf.det-1] * 0
+            self.d_qk_q[psf.det-1] = self.d_qk_i[psf.det-1] * 0
+
+            self.d_us_u[psf.det-1] = self.d_us_i[psf.det-1] * 0
+            self.d_uk_u[psf.det-1] = self.d_uk_i[psf.det-1] * 0
         else:
-            self.d_i_q[psf.det-1] = convolve(self.source * self.q_map, psf.psf, mode="same")
-            self.d_i_u[psf.det-1] = convolve(self.source * self.u_map, psf.psf, mode="same")
+            self.d_i_q[psf.det-1] = convolve(self.source * self.q_map, psf.psf)
+            self.d_i_u[psf.det-1] = convolve(self.source * self.u_map, psf.psf)
             
-            self.d_zs_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_zs, mode="same")
-            self.d_zk_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_zk, mode="same")
-            self.d_xk_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_xk, mode="same")
-            self.d_yk_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_yk, mode="same")
+            self.d_zs_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_zs, fix_edges=False)
+            self.d_zk_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_zk, fix_edges=False)
+            self.d_xk_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_xk, fix_edges=False)
+            self.d_yk_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_yk, fix_edges=False)
             
-            self.d_zs_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_zs, mode="same")
-            self.d_zk_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_zk, mode="same")
-            self.d_xk_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_xk, mode="same")
-            self.d_yk_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_yk, mode="same")
+            self.d_zs_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_zs, fix_edges=False)
+            self.d_zk_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_zk, fix_edges=False)
+            self.d_xk_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_xk, fix_edges=False)
+            self.d_yk_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_yk, fix_edges=False)
             
-            self.d_qs_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_qs, mode="same")
-            self.d_qk_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_qk, mode="same")
+            self.d_qs_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_qs, fix_edges=False)
+            self.d_qk_q[psf.det-1] = convolve(self.source * self.q_map, psf.d_qk, fix_edges=False)
             
-            self.d_us_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_us, mode="same")
-            self.d_uk_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_uk, mode="same")
+            self.d_us_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_us, fix_edges=False)
+            self.d_uk_u[psf.det-1] = convolve(self.source * self.u_map, psf.d_uk, fix_edges=False)
+
+    def _prepare_event_data(self, data, psf):
+        poses = (data.evt_ys, data.evt_xs)
+        lines = (self.pixel_centers, self.pixel_centers)
+        key = (data.obs_id, data.det)
+        self.evt_d_i_i[key] = RegularGridInterpolator(lines, self.d_i_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
+        self.evt_d_zs_i[key] = RegularGridInterpolator(lines, self.d_zs_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
+        self.evt_d_zk_i[key] = RegularGridInterpolator(lines, self.d_zk_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
+        self.evt_d_qs_i[key] = RegularGridInterpolator(lines, self.d_qs_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
+        self.evt_d_qk_i[key] = RegularGridInterpolator(lines, self.d_qk_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
+        self.evt_d_us_i[key] = RegularGridInterpolator(lines, self.d_us_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
+        self.evt_d_uk_i[key] = RegularGridInterpolator(lines, self.d_uk_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
+        self.evt_d_xk_i[key] = RegularGridInterpolator(lines, self.d_xk_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
+        self.evt_d_yk_i[key] = RegularGridInterpolator(lines, self.d_yk_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
 
     def compute_leakage(self, psf, spectrum, energy_dependence=None, normalize=False):
         '''Get the Q and U maps for this source (unnormalized by default), given the provided PSF and spectrum. Note: these are _detection_ predictions, so you will have to divide by mu (use source.divide_by_mu) to compare to true polarizations
@@ -375,6 +457,107 @@ class Source:
             u /= i
 
         return (i, q, u)
+
+    def get_event_p_r_given_phi(self, psf, data, energy_dependence=None):
+        '''Get the probability for an array of events to have the position they have given their
+        polarization. The result depends on energy because leakage parameters depend on energy. The
+        probability is in units of 1/(pixel area * radian), so that the integral over all phi and
+        all r within the PSF in units of pixels is equal to 1.
+        # Arguments:
+            - psf: the psf for the detector to be used. Sky-calibrated PSFs recommended
+            - data: an IXPEData object containing the events you would like to get probabilities for. The
+            evt_xs, evt_ys, evt_qs, evt_us, and evt_energies will be read. If the psf rotation angle is < 1e-5,
+            the antirotated versions will be read instead.
+            - energy_dependence:  optional argument for the energy dependence of sigma perp and parallel. Default is to use the simulation-measured dependences for either NN or Mom depending on the configuration of this Source object.
+        # Returns
+            - A list of probabilities
+        '''
+
+        if energy_dependence is None:
+            energy_dependence = EnergyDependence.default(self.use_nn)
+        key = (data.obs_id, data.det)
+
+        if not self.store_info or self.d_i_i[psf.det-1] is None:
+            self._prepare_psf(psf)
+        if not self.store_info or self.d_i_q[psf.det-1] is None:
+            self._prepare_source_polarization(psf)
+        if not self.store_info or key not in self.evt_d_i_i:
+            self._prepare_event_data(data, psf)
+
+        # Compute leakage parameters
+        sigma_para2, sigma_perp2, k_para4 = energy_dependence.evaluate(data.evt_energies)
+        k_perp4 = 3 * sigma_perp2**2
+        sigma_plus = sigma_para2 + sigma_perp2
+        sigma_minus = sigma_para2 - sigma_perp2
+        k_plus = k_para4 + k_perp4
+        k_minus = k_para4 - k_perp4
+
+        # Normalize the probabilities by computing the integral over all position and polarization.
+        # The normalization condition is that the sum over the image is equal to 1
+        normalization = (
+            np.sum(self.d_i_i[psf.det-1]*self.fit_roi) +
+
+            sigma_plus * np.sum(self.d_zs_i[psf.det-1]*self.fit_roi) +
+            k_plus * np.sum(self.d_zk_i[psf.det-1]*self.fit_roi) +
+
+            data.evt_mus/2 * (
+                sigma_minus * np.sum(self.d_qs_q[psf.det-1]*self.fit_roi) +
+                k_minus * np.sum(self.d_qk_q[psf.det-1]*self.fit_roi) +
+
+                sigma_minus * np.sum(self.d_us_u[psf.det-1]*self.fit_roi) +
+                k_minus * np.sum(self.d_uk_u[psf.det-1]*self.fit_roi)
+            )
+        )
+
+        return (
+            self.evt_d_i_i[key] + 
+
+            sigma_plus * self.evt_d_zs_i[key] +
+            k_plus * self.evt_d_zk_i[key] + 
+
+            data.evt_qs/2 * (
+                sigma_minus * self.evt_d_qs_i[key] + 
+                k_minus * self.evt_d_qk_i[key]
+            ) +
+
+            data.evt_us/2 * (
+                sigma_minus * self.evt_d_us_i[key] + 
+                k_minus * self.evt_d_uk_i[key]
+            ) +
+
+            (data.evt_qs**2 - data.evt_us**2)/4 * (
+                -k_minus/4 * self.evt_d_xk_i[key]
+            ) + 
+
+            (data.evt_qs*data.evt_us)/2 * (
+                -k_minus/4 * self.evt_d_yk_i[key]
+            )
+        ) / normalization
+
+    def get_event_p_r_unpol(self, psf, data):
+        '''Get the probability for an array of events to have the position they have, with no
+        polarization contributions. This function is not useful for fitting, but it's nice for
+        fitting.
+        # Arguments:
+            - psf: the psf for the detector to be used. Sky-calibrated PSFs recommended
+            - data: an IXPEData object containing the events you would like to get probabilities for. The
+            evt_xs, evt_ys, evt_qs, evt_us, and evt_energies will be read. If the psf rotation angle is < 1e-5,
+            the antirotated versions will be read instead.
+        # Returns
+            - A list of probabilities
+        '''
+
+        key = (data.obs_id, data.det)
+
+        if not self.store_info or self.d_i_i[psf.det-1] is None:
+            self._prepare_psf(psf)
+        if not self.store_info or self.d_i_q[psf.det-1] is None:
+            self._prepare_source_polarization(psf)
+        if not self.store_info or key not in self.evt_d_i_i:
+            self._prepare_event_data(data, psf)
+
+        normalization = np.sum(self.d_i_i[psf.det-1]*self.fit_roi)
+        return self.evt_d_i_i[key] / normalization
     
 
     def divide_by_mu(self, q, u, spectrum):

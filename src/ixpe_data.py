@@ -15,26 +15,24 @@ class IXPEData:
     """A class containing the data of a single pointing and a single detector.
     # Fields
     * General information
-        - det lists the detector (1, 2, 3)
-        - filename contains the FITS file representing this data set
-        - 
+        - `det` lists the detector (1, 2, 3)
+        - `filename` contains the FITS file representing this data set
     * Events
-        - The fields evt_*, where *=xs, ys, qs, us, energies, pis, times, ws, mus, and bg_probs, contain the properties of the individual events. Positions are measured in arcsec; q and u are the IXPE-standard 2cos(psi) and 2sin(psi). To cut them, use the IXPEData.cut(mask) or IXPEData.cut_region(reg_file) functions. Do not manually edit these fields, as this may cause the IXPEData to go out of sync with itself.
+        - The fields `evt_*`, where *=xs, ys, qs, us, energies, pis, times, ws, mus, and bg_probs, contain the properties of the individual events. Positions are measured in arcsec; q and u are the IXPE-standard 2cos(psi) and 2sin(psi). To cut them, use the `IXPEData.cut(mask)` or `IXPEData.cut_region(reg_file)` functions. Do not manually edit these fields, as this may cause the `IXPEData` to go out of sync with itself.
     * Images
-        - The fields i, q, u, n, w2, and cov_inv contain images of the observation, constructed with the same pixels as the Source provided upon initialization. These fields will exist if you constructed IXPEData with bin=True. If you need to recreate these images, call IXPEData.bin_data().
+        - The fields `i`, `q`, `u`, `n`, `w2`, and `cov_inv` contain images of the observation, constructed with the same pixels as the Source provided upon initialization. These fields will exist if you constructed `IXPEData` with bin=True. If you need to recreate these images, call `IXPEData.bin_data()`.
     """
 
-    def load_all_detectors(source, obs_id, energy_cut=(2, 8), time_cut_frac=None, weight_image=False, bin=True):
+    def load_all_detectors(source, obs_id, event_dir=None, energy_cut=(2, 8), weight_image=False, bin=True):
         '''Load all detectors
         
         ## Arguments:
-        - source: a Source object used to set the size of the IXPEData images. The actual source flux is not read, just whether the source is NN or Mom and the shape of the image. If you do not wish to bin the data, you can pass a Source.no_image
-        - obs_id: the observation ID to load. Searches in all the directories listed in settings.DATA_DIRECTORIES for these files.
-        - use_nn: Set to true to use NN data
-        - energy_cut: Event energy cut in keV. Default 2--8.
-        - time_cut_frac: If not None, must be a tuple (l, h). Only events with time between the lth and hth quantiles will be used.
-        - weight_image: Set to True to weight the Q and U image by weights
-        - bin: Set to False if you don't wish to bin the data. If you passed a source created with Source.no_image, then the bin argument will be ignored and bins will not be produced.
+        - source: a `Source` object used to set the size of the `IXPEData` images. The actual source flux is not read, just whether the source is NN or Mom and the shape of the image. If you do not wish to bin the data, you can pass a `Source.no_image`
+        - `obs_id`: the observation ID to load. Set to `None` to load whatever data is pointed to by prepath.
+        - `event_dir`: name of the directory containing the event files. Default (`None`) is treated as `event_l2` if the `source` argument indicates that Moments data should be used, and `event_nn` if it indicates that NN results should be used.
+        - `energy_cut`: Event energy cut in keV. Default 2--8.
+        - `weight_image`: Set to `True` to weight the Q and U image by weights
+        - `bin`: Set to `False` if you don't wish to bin the data. If you passed a source created with `Source.no_image`, then the bin argument will be ignored and bins will not be produced.
 
         ## Returns:
         A list of IXPEData objects for all three detectors. 
@@ -42,7 +40,7 @@ class IXPEData:
 
         reasons = []
         for prepath in DATA_DIRECTORIES:
-            result, reason = IXPEData.load_all_detectors_with_path(source, prepath, obs_id, energy_cut, time_cut_frac, weight_image, bin)
+            result, reason = IXPEData.load_all_detectors_with_path(source, prepath, obs_id, event_dir, energy_cut, weight_image, bin)
             reasons.append(reason)
             if result is not None:
                 return result
@@ -53,33 +51,35 @@ class IXPEData:
         raise Exception(f"Could not find any observations with ID {obs_id}")
     
 
-    def load_all_detectors_with_path(source, prepath, obs_id=None, energy_cut=(2, 8), time_cut_frac=None, weight_image=False, bin=True):
-        '''Load all detectors
+    def load_all_detectors_with_path(source, prepath, obs_id=None, event_dir=None, energy_cut=(2, 8), weight_image=False, bin=True):
+        '''Load all detectors from a specific directory, without using to the default directories stored stored in the LeakageLib settings file.
         
-        ## Arguments:
-        - source: a Source object used to set the size of the IXPEData images. The actual source flux is not read, just whether the source is NN or Mom and the shape of the image. If you do not wish to bin the data, you can pass a Source.no_image
-        - prepath: The path to the data directory. If obs_is not specified, this should point to the folder that contains all observation data. If obs_id is specified, this should point to the superfolder.
-        - obs_id: the observation ID to load. Set to None to load whatever data is pointed to by prepath.
-        - energy_cut: Event energy cut in keV. Default 2--8.
-        - time_cut_frac: If not None, must be a tuple (l, h). Only events with time between the lth and hth quantiles will be used.
-        - weight_image: Set to True to weight the Q and U image by weights
-        - bin: Set to False if you don't wish to bin the data. If you passed a source created with Source.no_image, then the bin argument will be ignored and bins will not be produced.
+        ## `Arguments`:
+        - source: a `Source` object used to set the size of the `IXPEData` images. The actual source flux is not read, just whether the source is NN or Mom and the shape of the image. If you do not wish to bin the data, you can pass a `Source.no_image`
+        - `prepath`: If `obs_is` not specified, the string `prepath` points to the folder that contains the data for this observation. If `obs_id` is specified, `prepath` should point to the superfolder, of the folder containing observation data, which is assumed to be named `obs_id`. Within the data directory, 
+        - `obs_id`: the observation ID to load. Set to `None` to load whatever data is pointed to by prepath.
+        - `event_dir`: name of the directory containing the event files. Default (`None`) is treated as `event_l2` if the `source` argument indicates that Moments data should be used, and `event_nn` if it indicates that NN results should be used.
+        - `energy_cut`: Event energy cut in keV. Default 2--8.
+        - `weight_image`: Set to `True` to weight the Q and U image by weights
+        - `bin`: Set to `False` if you don't wish to bin the data. If you passed a source created with `Source.no_image`, then the bin argument will be ignored and bins will not be produced.
 
         ## Returns:
         A list of IXPEData objects for all three detectors. 
         '''
 
-        if obs_id is not None:
+        if event_dir is None:
             if source.use_nn:
-                event_directory = f"{prepath}/{obs_id}/event_nn"
+                event_dir_to_use = "event_nn"
             else:
-                event_directory = f"{prepath}/{obs_id}/event_l2"
+                event_dir_to_use = "event_l2"
+        else:
+            event_dir_to_use = event_dir
+
+        if obs_id is not None:
+            event_directory = f"{prepath}/{obs_id}/{event_dir_to_use}"
             hk_directory = f"{prepath}/{obs_id}/hk"
         else:
-            if source.use_nn:
-                event_directory = f"{prepath}/event_nn"
-            else:
-                event_directory = f"{prepath}/event_l2"
+            event_directory = f"{prepath}/{obs_id}/{event_dir_to_use}"
             hk_directory = f"{prepath}/hk"
 
         if not os.path.exists(event_directory):
@@ -114,7 +114,7 @@ class IXPEData:
             elif "det3" in f:
                 i = 2
             else: continue
-            detectors[i] = IXPEData(source, (f"{event_directory}/{f}", hks[i]), energy_cut, time_cut_frac=time_cut_frac, weight_image=weight_image, bin=bin)
+            detectors[i] = IXPEData(source, (f"{event_directory}/{f}", hks[i]), energy_cut, weight_image=weight_image, bin=bin)
 
         print("Successfully loaded files")
         for data in detectors:
@@ -132,16 +132,15 @@ class IXPEData:
             polarizations.append(polarization)
         return np.mean(polarizations, axis=0)
 
-    def __init__(self, source, file_name, energy_cut=(2, 8), time_cut_frac=None, weight_image=False, bin=True):
+    def __init__(self, source, file_name, energy_cut=(2, 8), weight_image=False, bin=True):
         '''Load all detectors
         
         ## Arguments:
-        - source: a Source object used to set the size of the IXPEData images. The actual source flux is not read, just whether the source is NN or Mom and the shape of the image. If you do not wish to bin the data, you can pass a Source.no_image
-        - file_name: A tuple (event_name, hk_name). `event_name` points to the event_file. `hk_name` points to the hk file.
-        - energy_cut: Event energy cut in keV. Default 2--8.
-        - time_cut_frac: If not None, must be a tuple (l, h). Only events with time between the lth and hth quantiles will be used.
-        - weight_image: Set to True to weight the Q and U image by weights
-        - bin: Set to False if you don't wish to bin the data. If you passed a source created with Source.no_image, then the bin argument will be ignored and bins will not be produced.
+        - `source`: a `Source` object used to set the size of the `IXPEData` images. The actual source flux is not read, just whether the source is NN or Mom and the shape of the image. If you do not wish to bin the data, you can pass a `Source.no_image`
+        - `file_name`: A tuple `(event_name, hk_name)`. `event_name` points to the event file. `hk_name` points to the hk file.
+        - `energy_cut`: Event energy cut in keV. Default 2--8.
+        - `weight_image`: Set to `True` to weight the Q and U image by weights
+        - `bin`: Set to `False` if you don't wish to bin the data. If you passed a source created with `Source.no_image`, then the bin argument will be ignored and bins will not be produced.
 
         ## Returns:
         The detector in question
@@ -153,26 +152,23 @@ class IXPEData:
         with fits.open(file_name[0]) as hdul:
             events = hdul[1].data
             self.det = int(hdul[1].header["DETNAM"][2:])
-            self.obs_id = hdul[1].header["OBS_ID"]
+            self.obs_id = hdul[1].header['OBS_ID']
+            if type(self.obs_id) == int:
+                self.obs_id = f"{self.obs_id:08d}"
 
             energies = 0.02 + events["PI"] * 0.04
-            # energy mask
-            self.mask = (energy_cut[0] <= energies) & (energies < energy_cut[1])
+            mask = np.ones(len(energies), bool)
+            if energy_cut is not None:
+                mask &= (energy_cut[0] <= energies) & (energies < energy_cut[1])
+            events = events[mask]
 
-            if time_cut_frac is not None:
-                times = events["TIME"]
-                min_time = np.nanquantile(times, time_cut_frac[0])
-                max_time = np.nanquantile(times, time_cut_frac[1])
-                self.mask &= (min_time < times) & (times < max_time)
-            events = events[self.mask]
-
-            self.evt_xs = events["X"] * IXPE_PIXEL_SIZE
-            self.evt_ys = events["Y"] * IXPE_PIXEL_SIZE
-            self.evt_qs = events["Q"]
-            self.evt_us = events["U"]
-            self.evt_energies = 0.02 + events["PI"] * 0.04
-            self.evt_pis = events["PI"]
-            self.evt_times = events["TIME"]
+            self.evt_xs = events["X"].astype(np.float64) * IXPE_PIXEL_SIZE
+            self.evt_ys = events["Y"].astype(np.float64) * IXPE_PIXEL_SIZE
+            self.evt_qs = events["Q"].astype(np.float64)
+            self.evt_us = events["U"].astype(np.float64)
+            self.evt_energies = 0.02 + events["PI"].astype(np.float64) * 0.04
+            self.evt_pis = events["PI"].astype(int)
+            self.evt_times = events["TIME"].astype(np.float64)
             self.evt_exposures = np.ones_like(self.evt_xs)
             if "BG_PROB" in events.columns.names:
                 self.evt_bg_probs = events["BG_PROB"]
@@ -182,20 +178,24 @@ class IXPEData:
                 self.evt_mus = get_nn_modf(self.evt_energies)
             else:
                 self.evt_mus = get_mom_modf(self.evt_energies)
-            if "nn.fits" in file_name[0]:
-                self.evt_ws = events["W_NN"]
+            if "W_NN" in events.columns.names:
+                self.evt_ws = events["W_NN"].astype(np.float64)
             else:
-                self.evt_ws = events["W_MOM"]
+                self.evt_ws = events["W_MOM"].astype(np.float64)
 
         # Extract orientation from the housekeeping file too
         with fits.open(file_name[1]) as hdu:
-            self.rotation = hdu[0].header['PADYN']
+            self.rotation = float(hdu[0].header['PADYN'])
 
         self.bin = bin
         self.pixels_per_row = len(source.source)
         self.pixel_size = source.pixel_size#arcsec
 
-        self.pos_cut = self.pixels_per_row / 2 * self.pixel_size # Edge of the image in arcsec
+        if bin:
+            self.pos_cut = self.pixels_per_row / 2 * self.pixel_size # Edge of the image in arcsec
+        else:
+            # The user didn't provide a pos cut. Set to something reasonable
+            self.pos_cut = 2.6 * 60
         self.pixel_edges = np.arange(self.pixels_per_row + 1, dtype=float) * (self.pixel_size) # arcsec
         self.pixel_edges -= np.max(self.pixel_edges) / 2
         self.pixel_centers = self.pixel_edges[:-1] + (self.pixel_edges[1] - self.pixel_edges[0]) / 2
@@ -210,11 +210,10 @@ class IXPEData:
     def cut(self, mask):
         """Cut all events to a mask
         # Arguments:
-        * mask: a mask where True indicates the event should be kept
+        * `mask`: a mask where `True` indicates the event should be kept
         """
-        current_indices = np.arange(len(self.mask)).astype(int)[self.mask]
-        excluded_indices = current_indices[~mask]
-        self.mask[excluded_indices] = False
+        if len(mask) != len(self.evt_xs):
+            raise Exception(f"The mask you provided (length {len(mask)}) does not have the same length as the data (length {len(self.evt_xs)})")
         self.evt_xs = self.evt_xs[mask]
         self.evt_ys = self.evt_ys[mask]
         self.evt_qs = self.evt_qs[mask]
@@ -233,8 +232,8 @@ class IXPEData:
         """
         Cut all events according to a region file
         # Arguments:
-        * regfile: a region file containing a single region, ciao formatted, in physical coordinates.
-        * exclude: if set to True, all events in the region will be cut. Otherwise, they will be kept. 
+        * `regfile`: a region file containing a single region, ciao formatted, in physical coordinates.
+        * `exclude`: if set to `True`, all events in the region will be cut. Otherwise, they will be kept. 
 
         WARNING: Uses an approximate conversion between xy and radec which will be slightly inaccurate off-axis,
         """
@@ -284,6 +283,10 @@ class IXPEData:
 
         # Zoom in and recenter again
         core_mask = np.sqrt(poses[:,0]**2 + poses[:,1]**2) < self.pos_cut / 3
+        poses -= np.nanmedian(poses[core_mask], axis=0)
+
+        # Zoom in and recenter again
+        core_mask = np.sqrt(poses[:,0]**2 + poses[:,1]**2) < self.pos_cut / 9
         poses -= np.nanmedian(poses[core_mask], axis=0)
 
         self.evt_xs = poses[:,0]
@@ -349,7 +352,7 @@ class IXPEData:
 
     def antirotate_events(self):
         """
-        Aligns the events so that up is in detector coords rather than north and saves them as evt_xs_antirot, evt_ys_antirot, evt_qs_antirot, evt_us_antirot. The original evt_xs and evt_ys and the image are unaffected.
+        Aligns the events so that up is in detector coords rather than north and saves them as `evt_xs_antirot`, `evt_ys_antirot`, `evt_qs_antirot`, `evt_us_antirot`. The original `evt_xs` and `evt_ys` and the image are unaffected.
         """
         self.evt_xs_antirot, self.evt_ys_antirot = np.einsum(
             "ij,ja->ia",
@@ -386,7 +389,7 @@ class IXPEData:
     def load_expmap(self, filename=None):
         '''Loads the exposure map and evaluates it for every pixel in the image.
         # Arguments
-        * filename: location of the exposure map. If none, the map is assumed to lie in the auxil folder, which is assumed to lie in the same directory as the hk and event_l2 folders.
+        * `filename`: location of the exposure map. If `None`, the map is assumed to lie in the auxil folder, which is assumed to lie in the same directory as the hk and event_l2 folders.
         
         WARNING: This function should not be run after the image has been centered.
         '''

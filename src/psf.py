@@ -86,6 +86,7 @@ class PSF:
         self.psf = image
         if rotation != 0:
             self.psf = PSF.rotate(self.psf, rotation * 180 / np.pi)
+        self.rotation = rotation
         
         # Crop some of PSF that won't be used
         self.pixel_centers = np.arange(len(self.psf), dtype=float) * current_pixel_width
@@ -134,9 +135,21 @@ class PSF:
         else:
             xs, ys = np.meshgrid(self.pixel_centers, self.pixel_centers)
             dist2 = xs * xs + ys * ys
-            blur = np.exp(-(dist2) / (2 * sigma**2)) # Gaussian
+            sigma_pix = sigma / self.pixel_width
+            blur = np.exp(-(dist2) / (2 * sigma_pix**2)) # Gaussian
             blur /= np.sum(blur)
             self.psf = convolve(self.unblurred_psf, blur, mode="same")
+
+        # Compute derivatives
+        self.compute_kernels()
+
+    def blur_custom_kernel(self, kernel):
+        """Blur the PSF by a kernel, which should be a 2d array with pixels assumed to be the same
+        size as this PSF's pixels. The width of the sky calibrated pixels is 2.9729"""
+        # Blur
+        kernel = np.copy(kernel) / np.sum(kernel)
+        flat = convolve(np.ones_like(self.unblurred_psf), kernel, mode="same")
+        self.psf = convolve(self.unblurred_psf, kernel, mode="same") / flat
 
         # Compute derivatives
         self.compute_kernels()
