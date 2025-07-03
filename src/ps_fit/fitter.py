@@ -330,7 +330,7 @@ class Fitter:
         """
         log_prob = 0
 
-        for (data, psf) in zip(self.datas, self.psfs):
+        for data_index, (data, psf) in enumerate(zip(self.datas, self.psfs)):
             ptcl = np.mean(data.evt_bg_probs)
 
             evt_probs_photon = np.zeros_like(data.evt_xs)
@@ -344,6 +344,7 @@ class Fitter:
             for source_index, source in enumerate(self.fit_settings.sources):
                 source_name = self.fit_settings.names[source_index]
                 particles = self.fit_settings.particles[source_index]
+                weights = self.fit_settings.weights[source_index]
                 if data.det not in self.fit_settings.detectors[source_index]:
                     # Do not use sources not made for this detector
                     continue
@@ -364,6 +365,9 @@ class Fitter:
                 p_r_given_phi = source.get_event_p_r_given_phi(psf, data)
 
                 p_phi = (1 + data.evt_mus/2 * (data.evt_qs*q + data.evt_us*u)) / (2 * np.pi)
+
+                if weights is not None:
+                    p_phi *= weights[data_index]
 
                 if particles:
                     evt_probs_particle += (1 - photon_prob) * p_r_given_phi * p_phi

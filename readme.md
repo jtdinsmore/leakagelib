@@ -6,6 +6,10 @@ Written by Jack Dinsmore in December 2023
 
 This code predicts and corrects leakage patterns in the IXPE satellite using asymmetric PSFs. It is described in the published paper "Dinsmore, J. T. & Romani, R. W. 2024, The Astrophysical Journal, **962** 183" If you use this software, please cite that paper and the DOI of this software.
 
+It also has routines to fit for the polarization of a point source or extended source, both using standard PCUBE analysis and with PSF weights.
+
+Finally, it has a method to assign background probabilities to each event.
+
 If you have questions, bug reports, or feature requests, please email Jack Dinsmore at jtd@stanford.edu.
 
 ## Installation
@@ -38,3 +42,5 @@ import leakagelib
 - **data**: contains data used by the algorithm, including the sigma_tot measured from simulations and the sky-calibrated PSFs produced by the paper accompanying this software package.
 
 - **src**: LeakageLib source code
+
+- **flag_background.py**: Script to flag the background events of a source.

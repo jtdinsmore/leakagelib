@@ -23,6 +23,7 @@ class FitSettings:
         self.particles = []
         self.guess_qu = []
         self.guess_f = []
+        self.weights = []
         self.roi = None
         self.fixed_blur = 0
 
@@ -125,6 +126,7 @@ class FitSettings:
         self.guess_qu.append((None, None))
         self.guess_f.append(None)
         self.particles.append(False)
+        self.weights.append(None)
     
     def add_background(self, name="bkg", det=(1,2,3), override_checks=False):
         """
@@ -161,6 +163,7 @@ class FitSettings:
         self.guess_qu.append((None, None))
         self.guess_f.append(None)
         self.particles.append(False)
+        self.weights.append(None)
     
     def add_source(self, source, name, det=(1,2,3,)):
         """
@@ -180,6 +183,92 @@ class FitSettings:
         self.guess_qu.append((None, None))
         self.guess_f.append(None)
         self.particles.append(False)
+        self.weights.append(None)
+
+    def set_weights(self, source_name, weights):
+        """
+        Set spectral and/or temporal weights for each event.
+        # Arguments
+        * source_name: the source name to assign weights to
+        * weights: a list of 1D numpy arrays where the nth array contains weights for the nth dataset. This function does not support weighting some data sets and not others.
+
+        WARNING: The weights must be normalized as discussed in the set_spectrum and set_lightcurve functions
+        """
+        if not source_name in self.names:
+            raise Exception(f"The source {source_name} is not in the list of sources.")
+        index = self.names.index(source_name)
+
+        if len(weights) != len(self.datas):
+            raise Exception("The number of weight arrays must be equal to the number of data sets")
+        for data_index in range(len(weights)):
+            if len(weights[data_index]) != len(self.datas[data_index].evt_xs):
+                raise Exception(f"The number of events in dataset {data_index} ({len(self.datas[data_index].evt_xs)}) did not match the number of weights {len(weights[data_index])}")
+            weights[data_index] /= np.mean(weights[data_index]) # Normalize
+
+        self.weights[index] = weights
+        
+    def set_spectrum(self, source_name, spectrum):
+        """
+        Set a spectrum for the source. Weights will be assigned by running the spectrum function on all event energies
+        # Arguments
+        * source_name: the source name to assign spectral weights to
+        * spectrum: A function that takes in a scalar (energy) and returns a scalar (weight). Must be able to take a numpy array as input
+
+        WARNING: The weights must be normalized in the sense that 
+        """
+        if not source_name in self.names:
+            raise Exception(f"The source {source_name} is not in the list of sources.")
+        index = self.names.index(source_name)
+
+        weights = []
+        max_energy = -np.inf
+        min_energy = np.inf
+        for data in self.datas:
+            max_energy = max(np.max(data.evt_energies), max_energy)
+            min_energy = min(np.min(data.evt_energies), min_energy)
+            these_weights = spectrum(data.evt_energies)
+            weights.append(these_weights)
+
+        # Compute normalization
+        energies = np.linspace(min_energy, max_energy, 1000)
+        integral = np.sum(spectrum(energies) * (energies[1] - energies[0]))
+        multiplier = (max_energy - min_energy) / integral        
+        for i in range(len(weights)):
+            weights[i] *= multiplier
+            
+        
+        self.weights[index] = weights
+        
+    def set_lightcurve(self, source_name, lightcurve):
+        """
+        Set a lightcurve for the source. Weights will be assigned by running the lightcurve function on all event times
+        # Arguments
+        * source_name: the source name to assign spectral weights to
+        * lightcurve: A function that takes in a scalar (time) and returns a scalar (weight). Must be able to take a numpy array as input.
+
+        WARNING: The lightcurve must be normalized in the sense that the integral over all possible times is equal to the width of the time range. This particular normalization method is so that sources without an assigned lightcurve can have weight 1, which has that normalization.
+        """
+        if not source_name in self.names:
+            raise Exception(f"The source {source_name} is not in the list of sources.")
+        index = self.names.index(source_name)
+
+        weights = []
+        max_time = -np.inf
+        min_time = np.inf
+        for data in self.datas:
+            max_time = max(np.max(data.evt_times), max_time)
+            min_time = min(np.min(data.evt_times), min_time)
+            these_weights = lightcurve(data.evt_times)
+            weights.append(these_weights)
+
+        # Compute normalization
+        times = np.linspace(min_time, max_time, 1000)
+        integral = np.sum(lightcurve(times) * (times[1] - times[0]))
+        multiplier = (max_time - min_time) / integral        
+        for i in range(len(weights)):
+            weights[i] *= multiplier
+
+        self.weights[index] = weights
 
     def fix_qu(self, source_name, qu):
         """
