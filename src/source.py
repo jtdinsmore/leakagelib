@@ -157,7 +157,7 @@ class Source:
         image = np.zeros((num_pixels, num_pixels))
         if num_pixels % 2 == 0:
             image[num_pixels//2, num_pixels//2] = 0.25
-            image[num_pixels//2, num_pixels//2] = 0.25
+            image[num_pixels//2, num_pixels//2+1] = 0.25
             image[num_pixels//2+1, num_pixels//2+1] = 0.25
             image[num_pixels//2+1, num_pixels//2] = 0.25
         else:
@@ -495,19 +495,19 @@ class Source:
         # Normalize the probabilities by computing the integral over all position and polarization.
         # The normalization condition is that the sum over the image is equal to 1
         normalization = (
-            np.sum(self.d_i_i[psf.det-1]*self.fit_roi) +
+            np.mean(self.d_i_i[psf.det-1]*self.fit_roi) +
 
-            sigma_plus * np.sum(self.d_zs_i[psf.det-1]*self.fit_roi) +
-            k_plus * np.sum(self.d_zk_i[psf.det-1]*self.fit_roi) +
+            sigma_plus * np.mean(self.d_zs_i[psf.det-1]*self.fit_roi) +
+            k_plus * np.mean(self.d_zk_i[psf.det-1]*self.fit_roi) +
 
             data.evt_mus/2 * (
-                sigma_minus * np.sum(self.d_qs_q[psf.det-1]*self.fit_roi) +
-                k_minus * np.sum(self.d_qk_q[psf.det-1]*self.fit_roi) +
+                sigma_minus * np.mean(self.d_qs_q[psf.det-1]*self.fit_roi) +
+                k_minus * np.mean(self.d_qk_q[psf.det-1]*self.fit_roi) +
 
-                sigma_minus * np.sum(self.d_us_u[psf.det-1]*self.fit_roi) +
-                k_minus * np.sum(self.d_uk_u[psf.det-1]*self.fit_roi)
+                sigma_minus * np.mean(self.d_us_u[psf.det-1]*self.fit_roi) +
+                k_minus * np.mean(self.d_uk_u[psf.det-1]*self.fit_roi)
             )
-        )
+        ) # NB it's guaranteed that all sources have the same size
 
         return (
             self.evt_d_i_i[key] + 
@@ -540,7 +540,7 @@ class Source:
         fitting.
         # Arguments:
             - psf: the psf for the detector to be used. Sky-calibrated PSFs recommended
-            - data: an IXPEData object containing the events you would like to get probabilities for. The
+            - data: an IXPEData object containing the events you would like to get probabilities for.
             evt_xs, evt_ys, evt_qs, evt_us, and evt_energies will be read. If the psf rotation angle is < 1e-5,
             the antirotated versions will be read instead.
         # Returns

@@ -26,11 +26,6 @@ class FitData:
         self.num_qu_params = qu_index*2
         self.num_flux_params = flux_index
 
-        # if np.any(fit_settings.particles):
-        self.fixed_ptcl = 0
-        # else:
-        #     self.fixed_ptcl = 0
-
         for key in self.flux_indices.keys():
             self.flux_indices[key] += self.num_qu_params
 
@@ -58,9 +53,6 @@ class FitData:
                 return self.fixed_flux[source_name]
             if param == "sigma":
                 return self.fixed_blur
-            if param == "ptcl":
-                raise DeprecationWarning
-                return self.fixed_ptcl
             raise Exception(f"Could not recognize parameter {param}")
         else:
             return params[index]
@@ -91,11 +83,6 @@ class FitData:
             if self.fixed_blur is not None: return None
             return self.num_qu_params + self.num_flux_params
         
-        if param == "ptcl":
-            raise DeprecationWarning
-            if self.fixed_ptcl is not None: return None
-            return self.num_qu_params + self.num_flux_params + self.n_sigma_params
-        
         raise Exception(f"Could not recognize parameter {param}")
 
     def index_to_param(self, index):
@@ -118,16 +105,11 @@ class FitData:
         if self.fixed_blur is None:
             if index == 0: return "sigma", None
             index -= self.n_sigma_params
-        if self.fixed_ptcl is None:
-            raise DeprecationWarning
-            if index == 0: return "ptcl", None
-            index -= 1
             
         raise Exception(f"Could not recognize index {original_index}")
 
     def length(self):
         length = self.num_qu_params + self.num_flux_params
         if self.fixed_blur is None: length += 1
-        if self.fixed_ptcl is None: length += 1
 
         return length

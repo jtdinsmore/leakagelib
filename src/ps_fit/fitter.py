@@ -22,7 +22,7 @@ class Fitter:
         * A Fitter object
 
         Notes:
-        * It is advisable to first center your data and cut it to a large circular aperture.
+        * It is advisable to first center your data and retain it to a large circular aperture.
         """
 
         # Check provided values
@@ -76,8 +76,6 @@ class Fitter:
             
         hessian = get_hess(self.log_prob, params, steps)
 
-        # Trim the Hessian to remove covariances between fluxes and Stokes parameters because the
-        # flux errors are usually non-gaussian
         for i in range(len(params)):
             for j in range(len(params)):
                 i_ptype, name = self.fit_data.index_to_param(i)
@@ -101,11 +99,11 @@ class Fitter:
         """
         x0, bounds = self.get_start_params()
 
-        def chisq(params):
-            return -2 * self.log_prob(params)
+        def minus_log_like(params):
+            return -self.log_prob(params)
         
         # Perform the fit
-        results = minimize(chisq, x0, bounds=bounds, method=method, options=dict(maxiter=len(x0)*300))
+        results = minimize(minus_log_like, x0, bounds=bounds, method=method, options=dict(maxiter=len(x0)*300))
         
         # Get the uncertainty
         cov = self.get_numerical_uncertainty(results.x)
@@ -203,8 +201,8 @@ class Fitter:
             if np.sum(src_mask) == 0 or np.sum(bg_mask) == 0:
                 data_mask[i] = False
                 continue
-            src_datas[i].cut(src_mask)
-            bg_datas[i].cut(bg_mask)
+            src_datas[i].retain(src_mask)
+            bg_datas[i].retain(bg_mask)
             total_counts += np.sum(src_mask)
             bg_counts += np.sum(bg_mask)
         src_datas = np.array(src_datas)[data_mask]
@@ -256,7 +254,10 @@ class Fitter:
 
         for i in range(self.fit_data.length()):
             param, source_name = self.fit_data.index_to_param(i)
-            source_index = self.fit_settings.names.index(source_name)
+            if source_name is not None:
+                source_index = self.fit_settings.names.index(source_name)
+            else:
+                source_name = None
 
             if param == "q":
                 if source_name == first_source_name:
@@ -284,7 +285,7 @@ class Fitter:
 
             elif param == "sigma":
                 x0.append(10)
-                bounds.append((0, 25))
+                bounds.append((0, 30))
 
             else:
                 raise Exception(f"Parameter {param} not handled")
@@ -331,66 +332,60 @@ class Fitter:
         log_prob = 0
 
         for data_index, (data, psf) in enumerate(zip(self.datas, self.psfs)):
-            ptcl = np.mean(data.evt_bg_probs)
-
-            evt_probs_photon = np.zeros_like(data.evt_xs)
-            evt_probs_particle = np.zeros_like(data.evt_xs)
-            if ptcl == 0:
-                photon_prob = np.ones(len(data.evt_bg_probs))
-            else:
-                photon_prob = (1-data.evt_bg_probs) * (1-ptcl)/((1-data.evt_bg_probs) * (1-ptcl) + data.evt_bg_probs * ptcl)
-
+            evt_probs = np.zeros_like(data.evt_xs)
             flux_norms = 0
             for source_index, source in enumerate(self.fit_settings.sources):
                 source_name = self.fit_settings.names[source_index]
-                particles = self.fit_settings.particles[source_index]
-                weights = self.fit_settings.weights[source_index]
+                temporal_weights = self.fit_settings.temporal_weights[source_index]
+                spectral_weights = self.fit_settings.spectral_weights[source_index]
                 if data.det not in self.fit_settings.detectors[source_index]:
                     # Do not use sources not made for this detector
+                    continue
+                if self.fit_settings.obs_ids[source_index] is not None and (data.obs_id not in self.fit_settings.obs_ids[source_index]):
+                    # Do not use sources not made for this observation
                     continue
 
                 # Get the parameters
                 q = self.fit_data.param_to_value(params, "q", source_name)
                 u = self.fit_data.param_to_value(params, "u", source_name)
                 f = self.fit_data.param_to_value(params, "f", source_name)
-                source.polarize_net((q, u))
-
                 if prior:
                     if q**2 + u**2 > 1:
                         return -1e10 * (1 + q**2 + u**2 - 1)
                     if f < 0:
-                        return -1e10 * (1 + -f)
+                        return -1e10 * (1 - f)
 
-                # Likelihood
+                source.polarize_net((q, u))
                 p_r_given_phi = source.get_event_p_r_given_phi(psf, data)
 
-                p_phi = (1 + data.evt_mus/2 * (data.evt_qs*q + data.evt_us*u)) / (2 * np.pi)
+                p_phi = 1 + data.evt_mus/2 * (data.evt_qs*q + data.evt_us*u)
+                # No need for the 1/2pi
 
-                if weights is not None:
-                    p_phi *= weights[data_index]
-
-                if particles:
-                    evt_probs_particle += (1 - photon_prob) * p_r_given_phi * p_phi
-                    # Do not add particle fluxes to the normalization, and do not multiply by flux.
-                    # I'm assuming that there's only one particle flux background, so the flux norm
-                    # for particles is equal to f.
+                if self.fit_settings.particles[source_index]:
+                    p_s = np.copy(data.evt_bg_probs)
                 else:
-                    evt_probs_photon += photon_prob * f * p_r_given_phi * p_phi
-                    flux_norms += f
+                    p_s = 1 - data.evt_bg_probs
+                if temporal_weights is not None:
+                    p_s *= temporal_weights[data_index]
+                if spectral_weights is not None:
+                    p_s *= spectral_weights[data_index]
 
-            log_prob += np.sum(np.log(evt_probs_photon / flux_norms + evt_probs_particle))
+                evt_probs += p_s * f * p_r_given_phi * p_phi
+                flux_norms += f
 
-            # if data.det == 1:
+            log_prob += np.sum(np.log(evt_probs / flux_norms))
+
+            # if data.det == 3:
             #     import matplotlib.pyplot as plt
             #     plt.style.use("root")
             #     fig, axs = plt.subplots(nrows=2, ncols=3, sharex=True, sharey=True)
-            #     bins = np.linspace(-350, 350, 45)
+            #     bins = np.linspace(-30, 30, 25)
             #     counts = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins)[0].astype(float)
             #     data_q = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins, weights=data.evt_qs)[0]/counts
             #     data_u = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins, weights=data.evt_us)[0]/counts
-            #     pred_i = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins, weights=evt_probs_photon)[0]/counts
-            #     pred_q = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins, weights=evt_probs_photon*data.evt_qs)[0]/(counts*pred_i*2)
-            #     pred_u = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins, weights=evt_probs_photon*data.evt_us)[0]/(counts*pred_i*2)
+            #     pred_i = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins, weights=evt_probs)[0]/counts
+            #     pred_q = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins, weights=evt_probs*data.evt_qs)[0]/(counts*pred_i*2)
+            #     pred_u = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins, weights=evt_probs*data.evt_us)[0]/(counts*pred_i*2)
 
             #     from dinsmore.image import blur
                 
@@ -404,15 +399,16 @@ class Fitter:
             #     pred_q = blur(pred_q, 1)
             #     pred_u = blur(pred_u, 1)
 
-
-            #     axs[0,0].pcolormesh(bins, bins, np.transpose(counts), vmin=0)
+            #     axs[0,0].pcolormesh(bins, bins, np.log(np.transpose(counts)+5))
             #     axs[0,0].set_title("Data")
-            #     axs[1,0].pcolormesh(bins, bins, np.transpose(pred_i), vmin=0)
+            #     axs[1,0].pcolormesh(bins, bins, np.log(np.transpose(pred_i)+5))
             #     axs[1,0].set_title("Pred")
             #     axs[0,1].pcolormesh(bins, bins, np.transpose(data_q), vmin=-0.5, vmax=0.5, cmap="RdBu")
             #     axs[1,1].pcolormesh(bins, bins, np.transpose(pred_q), vmin=-0.5, vmax=0.5, cmap="RdBu")
             #     axs[0,2].pcolormesh(bins, bins, np.transpose(data_u), vmin=-0.5, vmax=0.5, cmap="RdBu")
             #     axs[1,2].pcolormesh(bins, bins, np.transpose(pred_u), vmin=-0.5, vmax=0.5, cmap="RdBu")
+            #     axs[0,0].scatter(0,0, marker='x', lw=1, color='lime')
+            #     axs[1,0].scatter(0,0, marker='x', lw=1, color='lime')
             #     for ax in fig.axes:
             #         ax.set_aspect("equal")
             #     fig.suptitle(data.obs_id)
@@ -422,7 +418,12 @@ class Fitter:
             #     plt.close("all")
 
         if not np.isfinite(log_prob):
-            raise Exception(f"The log prob was not finite ({log_prob}) with parameters {params}. This happens when all your sources predict zero flux where at least one event was detected. Your background source might be at fault - is the ROI you provided correct?")
+            problem = "Your background source might be at fault - is the ROI you provided correct?"
+            if self.fit_data.param_to_index("f", "pbkg") is not None:
+                if params[self.fit_data.param_to_index("f", "pbkg")] == 0:
+                    if np.any([np.any(data.evt_bg_probs==1) for data in self.datas]):
+                        problem = "You have events with bg_prob=1 in your data set, and the particle background flux is zero. This probably caused the problem. Try removing these events"
+            raise Exception(f"The log prob was not finite ({log_prob}) with parameters {params}. This happens when all your sources predict zero flux in a region of parameter space where at least one event was detected. {problem}")
         # print(params, log_prob)
 
         return log_prob

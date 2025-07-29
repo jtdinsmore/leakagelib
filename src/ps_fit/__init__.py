@@ -5,4 +5,4 @@ Jack Dinsmore 2025
 
 from .fitter import Fitter
 from .fit_settings import FitSettings
-from .pcube import get_pcube, get_optimal
+from .pcube import get_pcube

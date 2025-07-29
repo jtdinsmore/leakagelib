@@ -1,6 +1,8 @@
 import numpy as np
+from scipy.interpolate import interp1d
 import warnings
 from ..source import Source
+from ..settings import LEAKAGE_DATA_DIRECTORY
 
 def get_num_pixels(data):
     max_radius = np.sqrt(np.max(data.evt_xs**2 + data.evt_ys**2))
@@ -8,6 +10,10 @@ def get_num_pixels(data):
     if n_pixels % 2 == 0:
         n_pixels += 1
     return n_pixels
+
+def get_nn_bkg_spectrum():
+    e_centers, spectrum = np.load(f"{LEAKAGE_DATA_DIRECTORY}/bkg-spec/nn_bkg_spectrum.npy")
+    return interp1d(e_centers, spectrum)
 
 class FitSettings:
     def __init__(self, datas):
@@ -18,12 +24,14 @@ class FitSettings:
         self.sources = []
         self.names = []
         self.detectors = []
+        self.obs_ids = []
         self.fixed_qu = []
         self.fixed_flux = []
         self.particles = []
         self.guess_qu = []
         self.guess_f = []
-        self.weights = []
+        self.spectral_weights = []
+        self.temporal_weights = []
         self.roi = None
         self.fixed_blur = 0
 
@@ -51,7 +59,16 @@ class FitSettings:
             self.add_background("pbkg", override_checks=True)
             self.particles[-1] = True
             self.fix_qu("pbkg", (0,0))
-            self.fix_flux("pbkg", 1)
+            
+            # Check if the particle spectrum should be added
+            for w in self.spectral_weights:
+                if w is not None:
+                    if self.sources[0].use_nn:
+                        nn_spectrum = get_nn_bkg_spectrum()
+                        self.set_spectrum("pbkg", nn_spectrum)
+                    else:
+                        self.set_spectrum("pbkg", lambda e: (e**-2.02))
+                    break
         else:
             warnings.warn("None of your data sets have nonzero bg_probs, so background particle" \
             " weighting will not be done.")
@@ -71,6 +88,14 @@ class FitSettings:
 
         common_pixel_size = None
         common_source_dimensions = None
+
+        # Check to make sure the data doesn't have any duplicates
+        keys = []
+        for data in self.datas:
+            key = (data.obs_id, data.det)
+            if key in keys:
+                raise Exception("Two of your data sets have identical detectors and observation numbers. If this is not a mistake, you should manually edit one of the observation numbers to make them distinct.")
+            keys.append(key)
 
         # Print warnings if any of the sources have weird properties
         for (name, source) in zip(self.names, self.sources):
@@ -99,7 +124,7 @@ class FitSettings:
             raise Exception("The name pbkg is reserved")
 
 
-    def add_point_source(self, name="src", det=(1,2,3,)):
+    def add_point_source(self, name="src", det=(1,2,3,), obs_ids=None):
         """
         Add a point source to the fit.
         # Arguments:
@@ -121,20 +146,24 @@ class FitSettings:
         self.sources.append(source)
         self.names.append(name)
         self.detectors.append(det)
+        self.obs_ids.append(obs_ids)
         self.fixed_qu.append(None)
         self.fixed_flux.append(None)
         self.guess_qu.append((None, None))
         self.guess_f.append(None)
         self.particles.append(False)
-        self.weights.append(None)
+        self.spectral_weights.append(None)
+        self.temporal_weights.append(None)
     
-    def add_background(self, name="bkg", det=(1,2,3), override_checks=False):
+    def add_background(self, name="bkg", det=(1,2,3), obs_ids=None, override_checks=False):
         """
         Add a uniform, polarized background to the fit.
         # Arguments:
         * name: a string representing the name of the source. Default: bkg
         * det (optional): A tuple containing the detector numbers the source should apply to.
         Default is (1,2,3)
+        * obs_ids (optional): A tuple containing the observation IDs the source should apply to.
+        Default is None, meaning all observations
         # Notes
         * To add an independent background to each detector, add three background sources and pass 
         det=1, det=2, det=3 for each. Make sure to pass different names.
@@ -158,14 +187,16 @@ class FitSettings:
         self.sources.append(source)
         self.names.append(name)
         self.detectors.append(det)
+        self.obs_ids.append(obs_ids)
         self.fixed_qu.append(None)
         self.fixed_flux.append(None)
         self.guess_qu.append((None, None))
         self.guess_f.append(None)
         self.particles.append(False)
-        self.weights.append(None)
+        self.spectral_weights.append(None)
+        self.temporal_weights.append(None)
     
-    def add_source(self, source, name, det=(1,2,3,)):
+    def add_source(self, source, name, det=(1,2,3,), obs_ids=None):
         """
         Add an extended soruce to the fit.
         # Arguments:
@@ -178,43 +209,24 @@ class FitSettings:
         self.sources.append(source)
         self.names.append(name)
         self.detectors.append(det)
+        self.obs_ids.append(obs_ids)
         self.fixed_qu.append(None)
         self.fixed_flux.append(None)
         self.guess_qu.append((None, None))
         self.guess_f.append(None)
         self.particles.append(False)
-        self.weights.append(None)
-
-    def set_weights(self, source_name, weights):
-        """
-        Set spectral and/or temporal weights for each event.
-        # Arguments
-        * source_name: the source name to assign weights to
-        * weights: a list of 1D numpy arrays where the nth array contains weights for the nth dataset. This function does not support weighting some data sets and not others.
-
-        WARNING: The weights must be normalized as discussed in the set_spectrum and set_lightcurve functions
-        """
-        if not source_name in self.names:
-            raise Exception(f"The source {source_name} is not in the list of sources.")
-        index = self.names.index(source_name)
-
-        if len(weights) != len(self.datas):
-            raise Exception("The number of weight arrays must be equal to the number of data sets")
-        for data_index in range(len(weights)):
-            if len(weights[data_index]) != len(self.datas[data_index].evt_xs):
-                raise Exception(f"The number of events in dataset {data_index} ({len(self.datas[data_index].evt_xs)}) did not match the number of weights {len(weights[data_index])}")
-            weights[data_index] /= np.mean(weights[data_index]) # Normalize
-
-        self.weights[index] = weights
+        self.spectral_weights.append(None)
+        self.temporal_weights.append(None)
         
-    def set_spectrum(self, source_name, spectrum):
+    def set_spectrum(self, source_name, spectrum, duty_cycle=None):
         """
         Set a spectrum for the source. Weights will be assigned by running the spectrum function on all event energies
         # Arguments
         * source_name: the source name to assign spectral weights to
         * spectrum: A function that takes in a scalar (energy) and returns a scalar (weight). Must be able to take a numpy array as input
+        * duty_cycle (option): Range over which the data is distributed. Default is uniformly distributed over the range of the data. If you did a contiguous energy cut, then you may leave the default option.  Otherwise, you should pass a function of energy which is equal to the fraction of data you cut at that energy
 
-        WARNING: The weights must be normalized in the sense that 
+        Assigns spectral weights to each event.
         """
         if not source_name in self.names:
             raise Exception(f"The source {source_name} is not in the list of sources.")
@@ -231,22 +243,27 @@ class FitSettings:
 
         # Compute normalization
         energies = np.linspace(min_energy, max_energy, 1000)
-        integral = np.sum(spectrum(energies) * (energies[1] - energies[0]))
-        multiplier = (max_energy - min_energy) / integral        
+        if duty_cycle is None:
+            duty_cycle = lambda e: np.ones_like(e)
+        integral = np.sum(spectrum(energies) * duty_cycle(energies))
+        integral_constant = np.sum(duty_cycle(energies)) # Settings weights equal to one would give this value
+
+        # Normalize the spectrum so that the spectrum normalization is equal to that of weights=1
+        multiplier = integral_constant / integral        
         for i in range(len(weights)):
             weights[i] *= multiplier
-            
         
-        self.weights[index] = weights
+        self.spectral_weights[index] = weights
         
-    def set_lightcurve(self, source_name, lightcurve):
+    def set_lightcurve(self, source_name, lightcurve, duty_cycle=None):
         """
         Set a lightcurve for the source. Weights will be assigned by running the lightcurve function on all event times
         # Arguments
         * source_name: the source name to assign spectral weights to
         * lightcurve: A function that takes in a scalar (time) and returns a scalar (weight). Must be able to take a numpy array as input.
+        * duty_cycle (option): Range over which the data is distributed. Default is uniformly distributed over the range of the data. If you did a contiguous time cut or no time cut, then you may leave the default option. Otherwise, you should pass a function of time which is equal to the fraction of data you cut at that time.
 
-        WARNING: The lightcurve must be normalized in the sense that the integral over all possible times is equal to the width of the time range. This particular normalization method is so that sources without an assigned lightcurve can have weight 1, which has that normalization.
+        Assigns time weights to each event.
         """
         if not source_name in self.names:
             raise Exception(f"The source {source_name} is not in the list of sources.")
@@ -263,12 +280,17 @@ class FitSettings:
 
         # Compute normalization
         times = np.linspace(min_time, max_time, 1000)
-        integral = np.sum(lightcurve(times) * (times[1] - times[0]))
-        multiplier = (max_time - min_time) / integral        
+        if duty_cycle is None:
+            duty_cycle = lambda t: np.ones_like(t)
+        integral = np.sum(lightcurve(times) * duty_cycle(times))
+        integral_constant = np.sum(duty_cycle(times)) # Settings weights equal to one would give this value
+
+        # Normalize the lightcurve so that the lightcurve normalization is equal to that of weights=1
+        multiplier = integral_constant / integral        
         for i in range(len(weights)):
             weights[i] *= multiplier
 
-        self.weights[index] = weights
+        self.temporal_weights[index] = weights
 
     def fix_qu(self, source_name, qu):
         """
@@ -357,9 +379,22 @@ class FitSettings:
         """
         if len(self.sources) == 0:
             raise Exception("You cannot apply a circular ROI until you have added at least one source. The function needs to know the dimensions of your source images")
-        xs, ys = np.meshgrid(self.sources[0].pixel_centers, self.sources[0].pixel_centers)
+        
+        # Make a subsampled grid
+        original_dim = len(self.sources[0].source)
+        subsamples = 8
+        subsample_edges = np.arange(original_dim*subsamples+1).astype(float) * self.sources[0].pixel_size/subsamples
+        subsample_centers = (subsample_edges[1:] + subsample_edges[:-1])/2
+        subsample_centers -= np.mean(subsample_centers)
+
+        # Make the ROI for this grid
+        xs, ys = np.meshgrid(subsample_centers, subsample_centers)
         roi_image = xs**2 + ys**2 < radius**2
-        self.apply_roi(roi_image)
+
+        # Re-sum it into the original dimensions
+        resummed = roi_image.reshape(original_dim, subsamples, original_dim, subsamples).mean(axis=(1, 3))
+
+        self.apply_roi(resummed)
 
     def get_n_sources(self):
         return len(self.sources)

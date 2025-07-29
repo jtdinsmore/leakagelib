@@ -34,6 +34,7 @@ class FitResult:
         self.message = message
         self.fit_settings = fit_settings
         self.fit_data = fit_data
+        self.dof = np.sum([len(data.evt_xs) for data in fit_settings.datas]) - fit_data.length()
 
     def get_pd_pa(self, tag="src"):
         q_index = self.fit_data.param_to_index("q", tag)
@@ -69,7 +70,7 @@ class FitResult:
                 sigma = pd / pd_unc
                 text += f"\tPD ({source_name}): {pd:.4f} +/- {pd_unc:.4f} ({sigma:.1f} sig)\n"
                 text += f"\tPA ({source_name}): {pa*180/np.pi:.4f} deg +/- {pa_unc*180/np.pi:.4f}\n"
-        text += f"fun: {self.fun}\n"
+        text += f"Likelihood {self.fun}, dof {self.dof}\n"
         text += self.message
         return text
 

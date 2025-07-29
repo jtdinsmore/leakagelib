@@ -32,7 +32,7 @@ class PSF:
             raise Exception("Please pass either 1, 2, or 3 in for detector")
         with fits.open(f'{LEAKAGE_DATA_DIRECTORY}/sky-psfs/{psf_origin}/PSF_MMA{detector}.fits') as hdul:
             initial_pixel_width = hdul[1].header["PIXANG"]
-            psf = hdul[1].data
+            psf = np.transpose(np.flip(hdul[1].data))
 
         return PSF(psf, initial_pixel_width, 0, source, rotation, detector, clip)
 
@@ -208,6 +208,6 @@ class PSF:
         if header is None:
             header = fits.Header();
         header['PIXANG'] = (self.pixel_width, "Angular size of each pixel in arcsec")
-        hdu = fits.ImageHDU(self.psf, header=header)
+        hdu = fits.ImageHDU(np.flip(np.transpose(self.psf)), header=header)
         hdul = fits.HDUList([blank, hdu])
         hdul.writeto(f"{directory}/PSF_MMA{self.det+1}.fits", overwrite=True)
