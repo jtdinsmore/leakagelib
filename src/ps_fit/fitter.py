@@ -2,7 +2,7 @@ import numpy as np
 from scipy.optimize import minimize
 import copy, warnings
 from .fit_data import FitData
-from .fit_result import FitResult, get_hess, get_grad
+from .fit_result import FitResult, get_hess
 from .pcube import get_pcube
 from ..psf import PSF
 

@@ -404,10 +404,11 @@ class IXPEData:
         normalized_u = self.u / self.i
         return np.array([np.nanmean(normalized_q[mask]), np.nanmean(normalized_u[mask])])
 
-    def load_expmap(self, filename=None):
+    def load_expmap(self, filename=None, offset=(0,0)):
         '''Loads the exposure map and evaluates it for every pixel in the image.
         # Arguments
         * `filename`: location of the exposure map. If `None`, the map is assumed to lie in the auxil folder, which is assumed to lie in the same directory as the hk and event_l2 folders.
+        # `offset`: Exposure map offset in arcsec
         
         WARNING: This function should not be run after the image has been centered.
         '''
@@ -415,12 +416,14 @@ class IXPEData:
             event_l2_folder = "/".join(self.filename.split("/")[:-1])
             auxil_folder = f"{event_l2_folder}/../auxil"
             if not os.path.exists(auxil_folder):
-                raise Exception(f"Could not find the exposure map files in {auxil_folder}. Please use the filename argument to provide an explicit location")
+                raise Exception(f"Could not find the exposure map files in {auxil_folder}. Please use the filename argument to provide an explicit file")
             for f in os.listdir(auxil_folder):
                 if "expmap2" not in f: continue
                 if str(self.obs_id) not in f: continue
                 if f"det{self.det}" not in f: continue
                 filename = f"{auxil_folder}/{f}"
+            if filename is None:
+                raise Exception(f"Could not find an exposure map file in {auxil_folder}. Please use the filename argument to provide an explicit file")
         
         with fits.open(filename) as hdul:
             image = hdul[0].data
@@ -431,11 +434,10 @@ class IXPEData:
             expmap = RegularGridInterpolator((ras, decs), np.transpose(image), bounds_error=False, fill_value=0)
 
         with fits.open(self.filename) as hdul:
-            # Retrieve the connection between x/y and ra/dec
             colx = hdul[1].columns["X"]
             coly = hdul[1].columns["Y"]
-            stretch = np.cos(coly.coord_ref_value * np.pi / 180)
-            ras = (self.evt_xs / IXPE_PIXEL_SIZE - colx.coord_ref_point) * stretch * colx.coord_inc + colx.coord_ref_value
-            decs = (self.evt_ys / IXPE_PIXEL_SIZE - coly.coord_ref_point) * coly.coord_inc + coly.coord_ref_value
+        stretch = np.cos(coly.coord_ref_value * np.pi / 180)
+        ras = (self.evt_xs / IXPE_PIXEL_SIZE - colx.coord_ref_point) / stretch * colx.coord_inc + colx.coord_ref_value
+        decs = (self.evt_ys / IXPE_PIXEL_SIZE - coly.coord_ref_point) * coly.coord_inc + coly.coord_ref_value
 
-        self.evt_exposures = expmap((ras, decs))
+        self.evt_exposures = expmap((ras-offset[0]/3600/stretch, decs-offset[1]/3600))
