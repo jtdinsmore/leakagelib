@@ -458,7 +458,7 @@ class Source:
 
         return (i, q, u)
 
-    def get_event_p_r_given_phi(self, psf, data, energy_dependence=None):
+    def get_event_p_r_given_phi(self, psf, data, overwrite_mus=None, energy_dependence=None):
         '''Get the probability for an array of events to have the position they have given their
         polarization. The result depends on energy because leakage parameters depend on energy. The
         probability is in units of 1/(pixel area * radian), so that the integral over all phi and
@@ -473,9 +473,14 @@ class Source:
             - A list of probabilities
         '''
 
+        key = (data.obs_id, data.det)
+
         if energy_dependence is None:
             energy_dependence = EnergyDependence.default(self.use_nn)
-        key = (data.obs_id, data.det)
+        if overwrite_mus is None:
+            mus = data.evt_mus
+        else:
+            mus = overwrite_mus    
 
         if not self.store_info or self.d_i_i[psf.det-1] is None:
             self._prepare_psf(psf)
@@ -491,6 +496,7 @@ class Source:
         sigma_minus = sigma_para2 - sigma_perp2
         k_plus = k_para4 + k_perp4
         k_minus = k_para4 - k_perp4
+        k_cross = -k_minus / 4
 
         # Normalize the probabilities by computing the integral over all position and polarization.
         # The normalization condition is that the sum over the image is equal to 1
@@ -500,7 +506,7 @@ class Source:
             sigma_plus * np.mean(self.d_zs_i[psf.det-1]*self.fit_roi) +
             k_plus * np.mean(self.d_zk_i[psf.det-1]*self.fit_roi) +
 
-            data.evt_mus/2 * (
+            mus/2 * (
                 sigma_minus * np.mean(self.d_qs_q[psf.det-1]*self.fit_roi) +
                 k_minus * np.mean(self.d_qk_q[psf.det-1]*self.fit_roi) +
 
@@ -526,11 +532,11 @@ class Source:
             ) +
 
             (data.evt_qs**2 - data.evt_us**2)/4 * (
-                -k_minus/4 * self.evt_d_xk_i[key]
+                k_cross * self.evt_d_xk_i[key]
             ) + 
 
             (data.evt_qs*data.evt_us)/2 * (
-                -k_minus/4 * self.evt_d_yk_i[key]
+                k_cross * self.evt_d_yk_i[key]
             )
         ) / normalization
 

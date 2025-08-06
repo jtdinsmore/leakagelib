@@ -338,6 +338,7 @@ class Fitter:
                 source_name = self.fit_settings.names[source_index]
                 temporal_weights = self.fit_settings.temporal_weights[source_index]
                 spectral_weights = self.fit_settings.spectral_weights[source_index]
+                spectral_mus = self.fit_settings.spectral_mus[source_index]
                 if data.det not in self.fit_settings.detectors[source_index]:
                     # Do not use sources not made for this detector
                     continue
@@ -354,11 +355,15 @@ class Fitter:
                         return -1e10 * (1 + q**2 + u**2 - 1)
                     if f < 0:
                         return -1e10 * (1 - f)
-
                 source.polarize_net((q, u))
-                p_r_given_phi = source.get_event_p_r_given_phi(psf, data)
 
-                p_phi = 1 + data.evt_mus/2 * (data.evt_qs*q + data.evt_us*u)
+                if spectral_mus is None:
+                    mus = data.evt_mus
+                else:
+                    mus = spectral_mus[data_index]
+                p_r_given_phi = source.get_event_p_r_given_phi(psf, data, overwrite_mus=mus)
+
+                p_phi = 1 + mus/2 * (data.evt_qs*q + data.evt_us*u)
                 # No need for the 1/2pi
 
                 if self.fit_settings.particles[source_index]:

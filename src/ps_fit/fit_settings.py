@@ -1,8 +1,16 @@
 import numpy as np
 from scipy.interpolate import interp1d
 import warnings
+from . import spectral_weights
 from ..source import Source
 from ..settings import LEAKAGE_DATA_DIRECTORY
+
+USE_SPECTRAL_MUS = False # Set to True to account for the fact that the finite detector energy
+# resolution means that the mu corresponding to the measured energy is different from the true mu,
+# which depends on the true energy. Accounting for this will lower mu on average. However, if the
+# modulation factors were calibrated on a source that wasn't monoenergetic, this effect is double-
+# counted. I therefore recommend turning USE_SPECTRAL_MUs off. The energy resolution is only used to
+# predict the spectrum.
 
 def get_num_pixels(data):
     max_radius = np.sqrt(np.max(data.evt_xs**2 + data.evt_ys**2))
@@ -13,7 +21,7 @@ def get_num_pixels(data):
 
 def get_nn_bkg_spectrum():
     e_centers, spectrum = np.load(f"{LEAKAGE_DATA_DIRECTORY}/bkg-spec/nn_bkg_spectrum.npy")
-    return interp1d(e_centers, spectrum)
+    return interp1d(e_centers, spectrum, fill_value=0, bounds_error=False)
 
 class FitSettings:
     def __init__(self, datas):
@@ -31,6 +39,7 @@ class FitSettings:
         self.guess_qu = []
         self.guess_f = []
         self.spectral_weights = []
+        self.spectral_mus = []
         self.temporal_weights = []
         self.roi = None
         self.fixed_blur = 0
@@ -153,6 +162,7 @@ class FitSettings:
         self.guess_f.append(None)
         self.particles.append(False)
         self.spectral_weights.append(None)
+        self.spectral_mus.append(None)
         self.temporal_weights.append(None)
     
     def add_background(self, name="bkg", det=(1,2,3), obs_ids=None, override_checks=False):
@@ -194,6 +204,7 @@ class FitSettings:
         self.guess_f.append(None)
         self.particles.append(False)
         self.spectral_weights.append(None)
+        self.spectral_mus.append(None)
         self.temporal_weights.append(None)
     
     def add_source(self, source, name, det=(1,2,3,), obs_ids=None):
@@ -216,6 +227,7 @@ class FitSettings:
         self.guess_f.append(None)
         self.particles.append(False)
         self.spectral_weights.append(None)
+        self.spectral_mus.append(None)
         self.temporal_weights.append(None)
         
     def set_spectrum(self, source_name, spectrum, duty_cycle=None):
@@ -232,20 +244,32 @@ class FitSettings:
             raise Exception(f"The source {source_name} is not in the list of sources.")
         index = self.names.index(source_name)
 
+        rmf = spectral_weights.RMF()
+        convolved_spec = rmf.convolve_spectrum(spectrum)
+
         weights = []
+        mus = []
         max_energy = -np.inf
         min_energy = np.inf
         for data in self.datas:
+            convolved_spec_mu = rmf.convolve_spectrum_mu(spectrum, data.use_nn)
             max_energy = max(np.max(data.evt_energies), max_energy)
             min_energy = min(np.min(data.evt_energies), min_energy)
-            these_weights = spectrum(data.evt_energies)
+            these_weights = convolved_spec(data.evt_energies)
+            these_mus = convolved_spec_mu(data.evt_energies) / these_weights
+
             weights.append(these_weights)
+
+            if USE_SPECTRAL_MUS:
+                mus.append(these_mus)
+            else:
+                mus.append(data.evt_mus)
 
         # Compute normalization
         energies = np.linspace(min_energy, max_energy, 1000)
         if duty_cycle is None:
             duty_cycle = lambda e: np.ones_like(e)
-        integral = np.sum(spectrum(energies) * duty_cycle(energies))
+        integral = np.sum(convolved_spec(energies) * duty_cycle(energies))
         integral_constant = np.sum(duty_cycle(energies)) # Settings weights equal to one would give this value
 
         # Normalize the spectrum so that the spectrum normalization is equal to that of weights=1
@@ -254,6 +278,7 @@ class FitSettings:
             weights[i] *= multiplier
         
         self.spectral_weights[index] = weights
+        self.spectral_mus[index] = mus
         
     def set_lightcurve(self, source_name, lightcurve, duty_cycle=None):
         """
