@@ -7,10 +7,7 @@ from ..settings import LEAKAGE_DATA_DIRECTORY
 
 USE_SPECTRAL_MUS = False # Set to True to account for the fact that the finite detector energy
 # resolution means that the mu corresponding to the measured energy is different from the true mu,
-# which depends on the true energy. Accounting for this will lower mu on average. However, if the
-# modulation factors were calibrated on a source that wasn't monoenergetic, this effect is double-
-# counted. I therefore recommend turning USE_SPECTRAL_MUs off. The energy resolution is only used to
-# predict the spectrum.
+# which depends on the true energy. Accounting for this will lower mu on average.
 
 def get_num_pixels(data):
     max_radius = np.sqrt(np.max(data.evt_xs**2 + data.evt_ys**2))
@@ -90,7 +87,7 @@ class FitSettings:
 
         for source in self.sources:
             source.store_info = store_info
-            source.fit_roi = np.copy(self.roi)
+            source.apply_roi(self.roi)
             source.invalidate_psf()
             source.invalidate_source_polarization()
             source.invalidate_event_data()

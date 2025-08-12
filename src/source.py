@@ -403,6 +403,12 @@ class Source:
         self.evt_d_xk_i[key] = RegularGridInterpolator(lines, self.d_xk_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
         self.evt_d_yk_i[key] = RegularGridInterpolator(lines, self.d_yk_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
 
+    def apply_roi(self, roi):
+        self.fit_roi = np.copy(roi)
+
+    def roi_weighted_mean(self, array):
+        return np.sum(array * self.fit_roi) / np.sum(self.fit_roi)
+
     def compute_leakage(self, psf, spectrum, energy_dependence=None, normalize=False):
         '''Get the Q and U maps for this source (unnormalized by default), given the provided PSF and spectrum. Note: these are _detection_ predictions, so you will have to divide by mu (use source.divide_by_mu) to compare to true polarizations
         ARGUMENTS:
@@ -498,25 +504,26 @@ class Source:
         k_minus = k_para4 - k_perp4
         k_cross = -k_minus / 4
 
-        # Normalize the probabilities by computing the integral over all position and polarization.
+        # Normalize the probabilities by computing the integral over all position.
         # The normalization condition is that the sum over the image is equal to 1
-        normalization = (
-            np.mean(self.d_i_i[psf.det-1]*self.fit_roi) +
 
-            sigma_plus * np.mean(self.d_zs_i[psf.det-1]*self.fit_roi) +
-            k_plus * np.mean(self.d_zk_i[psf.det-1]*self.fit_roi) +
+        normalization = (
+            self.roi_weighted_mean(self.d_i_i[psf.det-1]) +
+
+            sigma_plus * self.roi_weighted_mean(self.d_zs_i[psf.det-1]) +
+            k_plus * self.roi_weighted_mean(self.d_zk_i[psf.det-1]) +
 
             mus/2 * (
-                sigma_minus * np.mean(self.d_qs_q[psf.det-1]*self.fit_roi) +
-                k_minus * np.mean(self.d_qk_q[psf.det-1]*self.fit_roi) +
+                sigma_minus * self.roi_weighted_mean(self.d_qs_q[psf.det-1]) +
+                k_minus * self.roi_weighted_mean(self.d_qk_q[psf.det-1]) +
 
-                sigma_minus * np.mean(self.d_us_u[psf.det-1]*self.fit_roi) +
-                k_minus * np.mean(self.d_uk_u[psf.det-1]*self.fit_roi)
+                sigma_minus * self.roi_weighted_mean(self.d_us_u[psf.det-1]) +
+                k_minus * self.roi_weighted_mean(self.d_uk_u[psf.det-1])
             )
         ) # NB it's guaranteed that all sources have the same size
 
         return (
-            self.evt_d_i_i[key] + 
+            self.evt_d_i_i[key] +
 
             sigma_plus * self.evt_d_zs_i[key] +
             k_plus * self.evt_d_zk_i[key] + 
@@ -539,31 +546,6 @@ class Source:
                 k_cross * self.evt_d_yk_i[key]
             )
         ) / normalization
-
-    def get_event_p_r_unpol(self, psf, data):
-        '''Get the probability for an array of events to have the position they have, with no
-        polarization contributions. This function is not useful for fitting, but it's nice for
-        fitting.
-        # Arguments:
-            - psf: the psf for the detector to be used. Sky-calibrated PSFs recommended
-            - data: an IXPEData object containing the events you would like to get probabilities for.
-            evt_xs, evt_ys, evt_qs, evt_us, and evt_energies will be read. If the psf rotation angle is < 1e-5,
-            the antirotated versions will be read instead.
-        # Returns
-            - A list of probabilities
-        '''
-
-        key = (data.obs_id, data.det)
-
-        if not self.store_info or self.d_i_i[psf.det-1] is None:
-            self._prepare_psf(psf)
-        if not self.store_info or self.d_i_q[psf.det-1] is None:
-            self._prepare_source_polarization(psf)
-        if not self.store_info or key not in self.evt_d_i_i:
-            self._prepare_event_data(data, psf)
-
-        normalization = np.sum(self.d_i_i[psf.det-1]*self.fit_roi)
-        return self.evt_d_i_i[key] / normalization
     
 
     def divide_by_mu(self, q, u, spectrum):

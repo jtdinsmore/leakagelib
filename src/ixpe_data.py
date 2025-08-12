@@ -246,6 +246,9 @@ class IXPEData:
         * `regfile`: a region file containing a single region, ciao formatted, in physical coordinates.
         * `exclude`: if set to `True`, all events in the region will be removed. Otherwise, they will be kept. 
 
+        # Returns:
+        The resulting region object.
+
         WARNING: Uses an approximate conversion between xy and radec which will be slightly inaccurate off-axis,
         """
 
@@ -258,6 +261,7 @@ class IXPEData:
             print("WARNING: Cut region to size zero")
 
         self.retain(mask)
+        return region
 
     def extract_spectrum(self):
         energies = 0.02 + np.arange(np.max(self.evt_pis) + 1) * 0.04

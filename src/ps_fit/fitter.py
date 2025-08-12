@@ -330,10 +330,10 @@ class Fitter:
         been blurred
         """
         log_prob = 0
-
+        
         for data_index, (data, psf) in enumerate(zip(self.datas, self.psfs)):
             evt_probs = np.zeros_like(data.evt_xs)
-            flux_norms = 0
+            flux_norms = np.zeros_like(data.evt_xs)
             for source_index, source in enumerate(self.fit_settings.sources):
                 source_name = self.fit_settings.names[source_index]
                 temporal_weights = self.fit_settings.temporal_weights[source_index]
@@ -346,7 +346,7 @@ class Fitter:
                     # Do not use sources not made for this observation
                     continue
 
-                # Get the parameters
+                # Get the parameters and use the prior
                 q = self.fit_data.param_to_value(params, "q", source_name)
                 u = self.fit_data.param_to_value(params, "u", source_name)
                 f = self.fit_data.param_to_value(params, "f", source_name)
@@ -366,17 +366,19 @@ class Fitter:
                 p_phi = 1 + mus/2 * (data.evt_qs*q + data.evt_us*u)
                 # No need for the 1/2pi
 
+                # Particle weights
                 if self.fit_settings.particles[source_index]:
                     p_s = np.copy(data.evt_bg_probs)
                 else:
                     p_s = 1 - data.evt_bg_probs
+                flux_norms += p_s * f
+
                 if temporal_weights is not None:
                     p_s *= temporal_weights[data_index]
                 if spectral_weights is not None:
                     p_s *= spectral_weights[data_index]
-
+                    
                 evt_probs += p_s * f * p_r_given_phi * p_phi
-                flux_norms += f
 
             log_prob += np.sum(np.log(evt_probs / flux_norms))
 
@@ -384,7 +386,7 @@ class Fitter:
             #     import matplotlib.pyplot as plt
             #     plt.style.use("root")
             #     fig, axs = plt.subplots(nrows=2, ncols=3, sharex=True, sharey=True)
-            #     bins = np.linspace(-30, 30, 25)
+            #     bins = np.linspace(-50, 50, 25)
             #     counts = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins)[0].astype(float)
             #     data_q = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins, weights=data.evt_qs)[0]/counts
             #     data_u = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins, weights=data.evt_us)[0]/counts
@@ -392,6 +394,7 @@ class Fitter:
             #     pred_q = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins, weights=evt_probs*data.evt_qs)[0]/(counts*pred_i*2)
             #     pred_u = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins, weights=evt_probs*data.evt_us)[0]/(counts*pred_i*2)
 
+            #     pred_i *= np.mean(counts) / np.mean(pred_i)
             #     from dinsmore.image import blur
                 
             #     data_q[np.isnan(data_q)] = 0
@@ -404,9 +407,12 @@ class Fitter:
             #     pred_q = blur(pred_q, 1)
             #     pred_u = blur(pred_u, 1)
 
-            #     axs[0,0].pcolormesh(bins, bins, np.log(np.transpose(counts)+5))
+            #     image = np.log(counts + 1)
+            #     vmax = np.max(image)
+            #     axs[0,0].pcolormesh(bins, bins, np.transpose(image), vmin=0, vmax=vmax)
             #     axs[0,0].set_title("Data")
-            #     axs[1,0].pcolormesh(bins, bins, np.log(np.transpose(pred_i)+5))
+            #     image = np.log(counts + 1)
+            #     axs[1,0].pcolormesh(bins, bins, np.transpose(image), vmin=0, vmax=vmax)
             #     axs[1,0].set_title("Pred")
             #     axs[0,1].pcolormesh(bins, bins, np.transpose(data_q), vmin=-0.5, vmax=0.5, cmap="RdBu")
             #     axs[1,1].pcolormesh(bins, bins, np.transpose(pred_q), vmin=-0.5, vmax=0.5, cmap="RdBu")
@@ -414,8 +420,11 @@ class Fitter:
             #     axs[1,2].pcolormesh(bins, bins, np.transpose(pred_u), vmin=-0.5, vmax=0.5, cmap="RdBu")
             #     axs[0,0].scatter(0,0, marker='x', lw=1, color='lime')
             #     axs[1,0].scatter(0,0, marker='x', lw=1, color='lime')
+
             #     for ax in fig.axes:
             #         ax.set_aspect("equal")
+            #         ax.set_xlim(bins[-1], bins[0])
+            #         ax.set_ylim(bins[0], bins[-1])
             #     fig.suptitle(data.obs_id)
             #     fig.savefig("dbg.png")
             #     import time
