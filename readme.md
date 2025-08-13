@@ -37,7 +37,7 @@ import leakagelib
 
     - **example/extract.py** extracts true source polarization from synthetic observations of that nebula and compares them to the truth.
 
-    - **examples/psf-fit.py** fits for the polarization of a point source, using the PSF to assign a probability that the event comes from the source or background.
+    - **examples/psf-fit.py** fits for the polarization of a source, using the PSF to assign a probability that the event comes from the source or background.
 
 - **data**: contains data used by the algorithm, including the sigma_tot measured from simulations and the sky-calibrated PSFs produced by the paper accompanying this software package.
 

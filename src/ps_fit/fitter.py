@@ -34,6 +34,7 @@ class Fitter:
         self.fit_settings.finalize()
         self.fit_data = FitData(self.fit_settings)
         self.load_psfs(psfs)
+        self.spatial_weight = True
         
         self.get_pcube_estimate()
         self.get_flux_estimates()
@@ -211,7 +212,6 @@ class Fitter:
         area_ratio = outer_source**2 / (outer_bg**2 - inner_bg**2)
 
         if bg_counts == 0 or total_counts == 0:
-            warnings.warn("LeakageLib does a pcube fit to get start parameters for Stokes coefficients. The pcube fit failed. Starting with q=0, u=0. This initial guess might not find the global minimum.")
             self.pcube = [0, 0]
             self.bg_frac = 0.5
         else:
@@ -333,111 +333,82 @@ class Fitter:
         
         for data_index, (data, psf) in enumerate(zip(self.datas, self.psfs)):
             evt_probs = np.zeros_like(data.evt_xs)
-            flux_norms = np.zeros_like(data.evt_xs)
+            flux_norms = 0
             for source_index, source in enumerate(self.fit_settings.sources):
                 source_name = self.fit_settings.names[source_index]
                 temporal_weights = self.fit_settings.temporal_weights[source_index]
                 spectral_weights = self.fit_settings.spectral_weights[source_index]
                 spectral_mus = self.fit_settings.spectral_mus[source_index]
+                sweeps = self.fit_settings.sweeps[source_index]
                 if data.det not in self.fit_settings.detectors[source_index]:
-                    # Do not use sources not made for this detector
                     continue
                 if self.fit_settings.obs_ids[source_index] is not None and (data.obs_id not in self.fit_settings.obs_ids[source_index]):
-                    # Do not use sources not made for this observation
                     continue
 
                 # Get the parameters and use the prior
                 q = self.fit_data.param_to_value(params, "q", source_name)
                 u = self.fit_data.param_to_value(params, "u", source_name)
                 f = self.fit_data.param_to_value(params, "f", source_name)
+                source.polarize_net((q, u))
+                if spectral_mus is None:
+                    mus = data.evt_mus
+                else:
+                    mus = spectral_mus[data_index]
                 if prior:
                     if q**2 + u**2 > 1:
                         return -1e10 * (1 + q**2 + u**2 - 1)
                     if f < 0:
                         return -1e10 * (1 - f)
-                source.polarize_net((q, u))
+                    
+                if sweeps is not None:
+                    # Use the time-dependent PA sweep models
+                    new_q = q * sweeps[data_index][0] + u * sweeps[data_index][1]
+                    new_u = -q * sweeps[data_index][1] + u * sweeps[data_index][0]
+                    q = new_q
+                    u = new_u
 
-                if spectral_mus is None:
-                    mus = data.evt_mus
-                else:
-                    mus = spectral_mus[data_index]
-                p_r_given_phi = source.get_event_p_r_given_phi(psf, data, overwrite_mus=mus)
-
-                p_phi = 1 + mus/2 * (data.evt_qs*q + data.evt_us*u)
-                # No need for the 1/2pi
+                # Polarization weights (no need for the 1/2pi)
+                probs = 1 + mus/2 * (data.evt_qs*q + data.evt_us*u)
 
                 # Particle weights
                 if self.fit_settings.particles[source_index]:
-                    p_s = np.copy(data.evt_bg_probs)
-                else:
-                    p_s = 1 - data.evt_bg_probs
-                flux_norms += p_s * f
+                    clipped_chars = np.clip(data.evt_bg_chars, 1e-5, 1-1e-5)
+                    probs = clipped_chars / (1 - clipped_chars)
 
+                # Flux weights
+                probs *= f
+                flux_norms += f
+
+                # Spatial weights
+                if self.spatial_weight:
+                    probs *= source.get_event_p_r_given_phi(psf, data, overwrite_mus=mus)
+
+                # Phase weights
                 if temporal_weights is not None:
-                    p_s *= temporal_weights[data_index]
+                    probs *= temporal_weights[data_index]
+
+                # Spectral weights
                 if spectral_weights is not None:
-                    p_s *= spectral_weights[data_index]
+                    probs *= spectral_weights[data_index]
                     
-                evt_probs += p_s * f * p_r_given_phi * p_phi
+                evt_probs += probs
 
             log_prob += np.sum(np.log(evt_probs / flux_norms))
 
-            # if data.det == 3:
-            #     import matplotlib.pyplot as plt
-            #     plt.style.use("root")
-            #     fig, axs = plt.subplots(nrows=2, ncols=3, sharex=True, sharey=True)
-            #     bins = np.linspace(-50, 50, 25)
-            #     counts = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins)[0].astype(float)
-            #     data_q = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins, weights=data.evt_qs)[0]/counts
-            #     data_u = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins, weights=data.evt_us)[0]/counts
-            #     pred_i = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins, weights=evt_probs)[0]/counts
-            #     pred_q = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins, weights=evt_probs*data.evt_qs)[0]/(counts*pred_i*2)
-            #     pred_u = np.histogram2d(data.evt_xs, data.evt_ys, bins=bins, weights=evt_probs*data.evt_us)[0]/(counts*pred_i*2)
-
-            #     pred_i *= np.mean(counts) / np.mean(pred_i)
-            #     from dinsmore.image import blur
-                
-            #     data_q[np.isnan(data_q)] = 0
-            #     data_u[np.isnan(data_u)] = 0
-            #     data_q = blur(data_q, 1)
-            #     data_u = blur(data_u, 1)
-
-            #     pred_q[np.isnan(pred_q)] = 0
-            #     pred_u[np.isnan(pred_u)] = 0
-            #     pred_q = blur(pred_q, 1)
-            #     pred_u = blur(pred_u, 1)
-
-            #     image = np.log(counts + 1)
-            #     vmax = np.max(image)
-            #     axs[0,0].pcolormesh(bins, bins, np.transpose(image), vmin=0, vmax=vmax)
-            #     axs[0,0].set_title("Data")
-            #     image = np.log(counts + 1)
-            #     axs[1,0].pcolormesh(bins, bins, np.transpose(image), vmin=0, vmax=vmax)
-            #     axs[1,0].set_title("Pred")
-            #     axs[0,1].pcolormesh(bins, bins, np.transpose(data_q), vmin=-0.5, vmax=0.5, cmap="RdBu")
-            #     axs[1,1].pcolormesh(bins, bins, np.transpose(pred_q), vmin=-0.5, vmax=0.5, cmap="RdBu")
-            #     axs[0,2].pcolormesh(bins, bins, np.transpose(data_u), vmin=-0.5, vmax=0.5, cmap="RdBu")
-            #     axs[1,2].pcolormesh(bins, bins, np.transpose(pred_u), vmin=-0.5, vmax=0.5, cmap="RdBu")
-            #     axs[0,0].scatter(0,0, marker='x', lw=1, color='lime')
-            #     axs[1,0].scatter(0,0, marker='x', lw=1, color='lime')
-
-            #     for ax in fig.axes:
-            #         ax.set_aspect("equal")
-            #         ax.set_xlim(bins[-1], bins[0])
-            #         ax.set_ylim(bins[0], bins[-1])
-            #     fig.suptitle(data.obs_id)
-            #     fig.savefig("dbg.png")
-            #     import time
-            #     time.sleep(0.25)
-            #     plt.close("all")
-
         if not np.isfinite(log_prob):
-            problem = "Your background source might be at fault - is the ROI you provided correct?"
+            problem = None
             if self.fit_data.param_to_index("f", "pbkg") is not None:
                 if params[self.fit_data.param_to_index("f", "pbkg")] == 0:
-                    if np.any([np.any(data.evt_bg_probs==1) for data in self.datas]):
+                    if np.any([np.any(data.evt_bg_chars==1) for data in self.datas]):
                         problem = "You have events with bg_prob=1 in your data set, and the particle background flux is zero. This probably caused the problem. Try removing these events"
-            raise Exception(f"The log prob was not finite ({log_prob}) with parameters {params}. This happens when all your sources predict zero flux in a region of parameter space where at least one event was detected. {problem}")
-        # print(params, log_prob)
+            if problem is None:
+                for name in self.fit_settings.names:
+                    if self.fit_data.param_to_index("f", name) is not None and params[self.fit_data.param_to_index("f", name)] == 0:
+                        problem = f"Your flux for source {name} is equal to zero. Is that a background region?"
+            if problem is None:
+                problem = "Your background source might be at fault - is the ROI you provided correct?"
+                    
+            param_str = "\n".join([f"{self.fit_data.index_to_param(i)}: {params[i]}" for i in range(len(params))])
+            raise Exception(f"The log prob was not finite ({log_prob}) with parameters\n{param_str}\n This happens when all your sources predict zero flux in a region of parameter space where at least one event was detected.\n\n{problem}")
 
         return log_prob

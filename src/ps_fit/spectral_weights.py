@@ -11,6 +11,15 @@ class RMF:
         self.rmf_matrix = np.load(f"{LEAKAGE_DATA_DIRECTORY}/rmf/rmf.npy")
         self.es = np.load(f"{LEAKAGE_DATA_DIRECTORY}/rmf/es.npy")
         self.ehats = np.load(f"{LEAKAGE_DATA_DIRECTORY}/rmf/ehats.npy")
+
+    def delta():
+        self = RMF()
+        self.es = np.load(f"{LEAKAGE_DATA_DIRECTORY}/rmf/es.npy")
+        self.ehats = np.load(f"{LEAKAGE_DATA_DIRECTORY}/rmf/ehats.npy")
+        self.rmf_matrix = np.zeros((len(self.es), len(self.ehats)))
+        for i in range(len(self.es)):
+            self.rmf_matrix[i,np.argmin(np.abs(self.ehats - self.es[i]))] = 1
+        return self
     
     def convolve_spectrum(self, spectrum):
         """

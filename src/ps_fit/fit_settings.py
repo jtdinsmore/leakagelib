@@ -38,6 +38,7 @@ class FitSettings:
         self.spectral_weights = []
         self.spectral_mus = []
         self.temporal_weights = []
+        self.sweeps = []
         self.roi = None
         self.fixed_blur = 0
 
@@ -58,7 +59,7 @@ class FitSettings:
         # Make a particle source
         need_particle_source = False
         for data in self.datas:
-            if np.any(data.evt_bg_probs > 0):
+            if np.any(data.evt_bg_chars > 0):
                 need_particle_source = True
                 break
         if need_particle_source:
@@ -71,9 +72,9 @@ class FitSettings:
                 if w is not None:
                     if self.sources[0].use_nn:
                         nn_spectrum = get_nn_bkg_spectrum()
-                        self.set_spectrum("pbkg", nn_spectrum)
+                        self.set_spectrum("pbkg", nn_spectrum, use_rmf=False)
                     else:
-                        self.set_spectrum("pbkg", lambda e: (e**-2.02))
+                        self.set_spectrum("pbkg", lambda e: (e**-1.87), use_rmf=False)
                     break
         else:
             warnings.warn("None of your data sets have nonzero bg_probs, so background particle" \
@@ -161,6 +162,7 @@ class FitSettings:
         self.spectral_weights.append(None)
         self.spectral_mus.append(None)
         self.temporal_weights.append(None)
+        self.sweeps.append(None)
     
     def add_background(self, name="bkg", det=(1,2,3), obs_ids=None, override_checks=False):
         """
@@ -203,6 +205,7 @@ class FitSettings:
         self.spectral_weights.append(None)
         self.spectral_mus.append(None)
         self.temporal_weights.append(None)
+        self.sweeps.append(None)
     
     def add_source(self, source, name, det=(1,2,3,), obs_ids=None):
         """
@@ -226,8 +229,9 @@ class FitSettings:
         self.spectral_weights.append(None)
         self.spectral_mus.append(None)
         self.temporal_weights.append(None)
+        self.sweeps.append(None)
         
-    def set_spectrum(self, source_name, spectrum, duty_cycle=None):
+    def set_spectrum(self, source_name, spectrum, use_rmf=True, duty_cycle=None):
         """
         Set a spectrum for the source. Weights will be assigned by running the spectrum function on all event energies
         # Arguments
@@ -241,7 +245,10 @@ class FitSettings:
             raise Exception(f"The source {source_name} is not in the list of sources.")
         index = self.names.index(source_name)
 
-        rmf = spectral_weights.RMF()
+        if use_rmf:
+            rmf = spectral_weights.RMF()
+        else:
+            rmf = spectral_weights.RMF.delta()
         convolved_spec = rmf.convolve_spectrum(spectrum)
 
         weights = []
@@ -313,6 +320,24 @@ class FitSettings:
             weights[i] *= multiplier
 
         self.temporal_weights[index] = weights
+        
+    def set_sweep(self, source_name, sweep):
+        """
+        Set a polarization sweep model for the source.
+        # Arguments
+        * sweep: a tuple containing two functions. The first should take in time and return q (normalized Stokes coefficient), and the second should return u. A fit will then be run to determine normalization constants.
+
+        Assigns time weights to each event.
+        """
+        if not source_name in self.names:
+            raise Exception(f"The source {source_name} is not in the list of sources.")
+        index = self.names.index(source_name)
+
+        sweeps = []
+        for data in self.datas:
+            sweeps.append([sweep[0](data.evt_times), sweep[1](data.evt_times)])
+
+        self.sweeps[index] = sweeps
 
     def fix_qu(self, source_name, qu):
         """

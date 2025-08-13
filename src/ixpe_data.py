@@ -174,9 +174,9 @@ class IXPEData:
             self.evt_times = events["TIME"].astype(np.float64)
             self.evt_exposures = np.ones_like(self.evt_xs)
             if "BG_PROB" in events.columns.names:
-                self.evt_bg_probs = events["BG_PROB"]
+                self.evt_bg_chars = events["BG_PROB"]
             else:
-                self.evt_bg_probs = np.zeros(len(self.evt_xs))
+                self.evt_bg_chars = np.zeros(len(self.evt_xs))
             if source.use_nn:
                 self.evt_mus = get_nn_modf(self.evt_energies)
             else:
@@ -213,10 +213,12 @@ class IXPEData:
 
     def weight_nn(self):
         """If this is an NN data set, scrap the energy-dependent modulation factor and instead treat
-        the event-by-event weights as the modulation factor. If this is a Mom data set, this function
-        will do nothing"""
+        the event-by-event weights as the modulation factor. This function will then set all the
+        weights to one to avoid double counting them. If this is a Mom data set, this function
+        will do nothing."""
         if self.use_nn:
             self.evt_mus = np.copy(self.evt_ws)
+            self.evt_ws = np.ones_like(self.evt_ws)
 
     def retain(self, mask):
         """Retain all events to a mask and cut the rest
@@ -234,7 +236,7 @@ class IXPEData:
         self.evt_exposures = self.evt_exposures[mask]
         self.evt_ws = self.evt_ws[mask]
         self.evt_mus = self.evt_mus[mask]
-        self.evt_bg_probs = self.evt_bg_probs[mask]
+        self.evt_bg_chars = self.evt_bg_chars[mask]
         self.evt_times = self.evt_times[mask]
         self.extract_spectrum()
         self.bin_data()
