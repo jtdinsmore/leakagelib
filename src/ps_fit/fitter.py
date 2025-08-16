@@ -307,7 +307,7 @@ class Fitter:
         return sigmas
 
 
-    def log_prob(self, params, prior=True):
+    def log_prob(self, params, prior=True, return_array=False):
         """
         Get the log posterior of the Fitter (log_like + log_prior).
         This function works by preparing the data for the leakagelib prediction, and then calling
@@ -322,14 +322,17 @@ class Fitter:
                 psf.blur(blur)
 
         # Get the log prob
-        return self.raw_log_prob(params, prior)
+        return self.raw_log_prob(params, prior, return_array)
 
-    def raw_log_prob(self, params, prior):
+    def raw_log_prob(self, params, prior, return_array=False):
         """
         Get the log posterior of the Fitter (log_like + log_prior), assuming the PSFs have already 
         been blurred
         """
-        log_prob = 0
+        if return_array:
+            log_prob = []
+        else:
+            log_prob = 0
         
         for data_index, (data, psf) in enumerate(zip(self.datas, self.psfs)):
             evt_probs = np.zeros_like(data.evt_xs)
@@ -373,7 +376,7 @@ class Fitter:
                 # Particle weights
                 if self.fit_settings.particles[source_index]:
                     clipped_chars = np.clip(data.evt_bg_chars, 1e-5, 1-1e-5)
-                    probs = clipped_chars / (1 - clipped_chars)
+                    probs *= clipped_chars / (1 - clipped_chars)
 
                 # Flux weights
                 probs *= f
@@ -393,9 +396,32 @@ class Fitter:
                     
                 evt_probs += probs
 
-            log_prob += np.sum(np.log(evt_probs / flux_norms))
+            if return_array:
+                log_prob = np.concatenate([log_prob, np.log(evt_probs / flux_norms)])
+            else:
+                log_prob += np.sum(np.log(evt_probs / flux_norms))
 
-        if not np.isfinite(log_prob):
+            # if data.det == 1:
+            #     import matplotlib.pyplot  as plt
+            #     plt.style.use("root")
+            #     line = np.linspace(-50, 50, 42)
+
+            #     fig, (ax1, ax2) = plt.subplots(ncols=2, sharex=True, sharey=True)
+            #     counts = np.histogram2d(data.evt_xs, data.evt_ys, (line, line))[0].astype(float)
+            #     pred = np.histogram2d(data.evt_xs, data.evt_ys, (line, line), weights=evt_probs)[0].astype(float)/counts
+            #     image = (counts)
+            #     ax1.pcolormesh(line, line, np.transpose(image))
+            #     image = (pred)
+            #     image[~np.isfinite(image)] = 0
+            #     ax2.pcolormesh(line, line, np.transpose(pred))
+            #     ax1.set_aspect("equal")
+            #     ax2.set_aspect("equal")
+            #     fig.savefig("dbg.png")
+            #     plt.close("all")
+            #     import time
+            #     time.sleep(0.25)
+
+        if not return_array and not np.isfinite(log_prob):
             problem = None
             if self.fit_data.param_to_index("f", "pbkg") is not None:
                 if params[self.fit_data.param_to_index("f", "pbkg")] == 0:

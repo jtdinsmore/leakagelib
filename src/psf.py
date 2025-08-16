@@ -134,9 +134,7 @@ class PSF:
             self.psf = np.copy(self.unblurred_psf)
         else:
             xs, ys = np.meshgrid(self.pixel_centers, self.pixel_centers)
-            dist2 = xs * xs + ys * ys
-            sigma_pix = sigma / self.pixel_width
-            blur = np.exp(-(dist2) / (2 * sigma_pix**2)) # Gaussian
+            blur = np.exp(-(xs*xs + ys*ys) / (2 * sigma**2)) # Gaussian
             blur /= np.sum(blur)
             self.psf = convolve(self.unblurred_psf, blur, mode="same")
 
