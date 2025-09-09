@@ -1,26 +1,5 @@
 import numpy as np
 
-def hms(s):
-    h, m, s = s.split(":")
-    return (float(h) + float(m) / 60 + float(s) / 3600) * 360 / 24
-
-def dms(s):
-    d, m, s = s.split(":")
-    sign = float(d) / abs(float(d))
-    return (abs(float(d)) + float(m) / 60 + float(s) / 3600) * sign
-
-def to_deg(s):
-    # Convert string s to degrees
-    if s.endswith("'"):
-        f = float(s[:-1])
-        f /= 60
-    elif s.endswith("\""):
-        f = float(s[:-1])
-        f /= 3600
-    else:
-        f = float(s)
-    return f
-
 class Region:
     def __init__(self, filename):
         raise Exception("You cannot instantiate the pure base class Region")
@@ -139,7 +118,7 @@ class EllipseRegion(Region):
             self.dec = float(dec)
             self.a = float(a)
             self.b = float(b)
-            self.angle = float(angle) * np.pi / 180
+            self.angle = float(angle) * np.pi / 180 - np.pi/2
             self.success = True
     
     def check_inside_absolute(self, x, y):
