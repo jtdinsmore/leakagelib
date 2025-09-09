@@ -17,46 +17,48 @@ class PSF:
         '''Rotate an image backwards by an angle `rotation_deg` in degrees'''
         return np.flip(rotate(image, (rotation_deg + 90), cval=0, reshape=False), axis=1)
 
-    def sky_cal(detector_index, source, rotation, psf_origin="merge-nn", clip=True):
+    def sky_cal(detector, source, rotation, psf_origin="merge-nn", clip=True):
         '''Load the sky-calibrated PSFs.
         ## Arguments
-        - detector_index: 0 for DU1, 1 for DU2, and 2 for DU3
+        - detector: 1 for DU1, 2 for DU2, and 3 for DU3
         - source: a Source object used to set the width of the PSF
-        - rotation: angle by which to rotate the PSF to get it into the detector's frame
+        - rotation: angle (radians) by which to rotate the PSF to get it into the detector's frame
         - psf_origin: name of the sky calibrated PSF to use
 
         ## Returns
         The PSF of the detector.
         '''
-        with fits.open(f'{LEAKAGE_DATA_DIRECTORY}/sky-psfs/{psf_origin}/PSF_MMA{detector_index+1}.fits') as hdul:
+        if detector not in [1, 2, 3]:
+            raise Exception("Please pass either 1, 2, or 3 in for detector")
+        with fits.open(f'{LEAKAGE_DATA_DIRECTORY}/sky-psfs/{psf_origin}/PSF_MMA{detector}.fits') as hdul:
             initial_pixel_width = hdul[1].header["PIXANG"]
-            psf = hdul[1].data
+            psf = np.transpose(np.flip(hdul[1].data))
 
-        return PSF(psf, initial_pixel_width, 0, source, rotation, detector_index, clip)
+        return PSF(psf, initial_pixel_width, 0, source, rotation, detector, clip)
 
-    def ground_cal(detector_index, source, rotation, ground_blur=GROUND_BLUR, clip=True):
+    def ground_cal(detector, source, rotation, ground_blur=GROUND_BLUR, clip=True):
         '''Load the ground-calibrated PSFs.
         ## Arguments
-        - detector_index: 0 for DU1, 1 for DU2, and 2 for DU3
+        - detector_index: 1 for DU1, 2 for DU2, and 3 for DU3
         - source: a Source object used to set the width of the PSF
-        - rotation: angle by which to rotate the PSF to get it into the detector's frame
+        - rotation: angle (radians) by which to rotate the PSF to get it into the detector's frame
         - ground_blur: amount by which to blur the ground PSFs. Default is a value manually tuned to match leakage patterns
 
         ## Returns
         The PSF of the detector.
         '''
-        with fits.open(f'../../data/ground_cal_psfs/PSF_MMA{detector_index+1}.fits') as hdul:
+        with fits.open(f'../../data/ground_cal_psfs/PSF_MMA{detector}.fits') as hdul:
             initial_pixel_width = hdul[1].header["PIXANG"]
             psf = hdul[1].data
 
-        return PSF(psf, initial_pixel_width, ground_blur, source, rotation, detector_index, clip)
+        return PSF(psf, initial_pixel_width, ground_blur, source, rotation, detector, clip)
 
-    def obssim(detector_index, source, rotation, obssim_blur=OBSSIM_BLUR, clip=True):
+    def obssim(detector, source, rotation, obssim_blur=OBSSIM_BLUR, clip=True):
         '''Load the IXPEobssim PSFs, which at the time of publication were symmetric. Requires IXPEobssim to be installed
         ## Arguments
-        - detector_index: 0 for DU1, 1 for DU2, and 2 for DU3
+        - detector_index: 1 for DU1, 2 for DU2, and 3 for DU3
         - source: a Source object used to set the width of the PSF
-        - rotation: angle by which to rotate the PSF to get it into the detector's frame
+        - rotation: angle (radians) by which to rotate the PSF to get it into the detector's frame
         - ground_blur: amount by which to blur the ground PSFs. Default is a value manually tuned to match leakage patterns
 
         ## Returns
@@ -64,26 +66,27 @@ class PSF:
         '''
         from ixpeobssim.irf import load_psf
 
-        psf_ixpe = load_psf('ixpe:obssim:v11',du_id=detector_index+1)
+        psf_ixpe = load_psf('ixpe:obssim:v11',du_id=detector)
         initial_pixel_width = 1
         line = np.arange(len(psf_ixpe.x), dtype=float) * initial_pixel_width
         line -= line[-1]/2
         xs, ys = np.meshgrid(line, line)
         psf = psf_ixpe(np.sqrt(xs**2 + ys**2))
 
-        return PSF(psf, initial_pixel_width, obssim_blur, source, rotation, detector_index, clip)
+        return PSF(psf, initial_pixel_width, obssim_blur, source, rotation, detector, clip)
         
-    def __init__(self, image, current_pixel_width, blur_width, source, rotation, detector_index, clip=False):
+    def __init__(self, image, current_pixel_width, blur_width, source, rotation, detector, clip=False):
         '''Get the PSF for a given image. Please don't use this function unless necessary. Use the `sky-cal`, `ground-cal`, and `obssim` functions to load specific PSFs.
         '''
         # Set information about the PSF
         self.pixel_width = current_pixel_width
-        self.det = detector_index
+        self.det = detector
         
         # Rotate to the ra-dec frame
         self.psf = image
         if rotation != 0:
             self.psf = PSF.rotate(self.psf, rotation * 180 / np.pi)
+        self.rotation = rotation
         
         # Crop some of PSF that won't be used
         self.pixel_centers = np.arange(len(self.psf), dtype=float) * current_pixel_width
@@ -94,19 +97,12 @@ class PSF:
             self.clip(clip_size)
 
         # Blur
-        xs, ys = np.meshgrid(self.pixel_centers, self.pixel_centers)
-        self.blur = blur_width
+        self.unblurred_psf = np.copy(self.psf)
+        self.unblurred_psf[np.isnan(self.unblurred_psf)] = 0
         if blur_width is not None and blur_width > 0:
-            dist2 = xs * xs + ys * ys
-
-            blur = np.exp(-(dist2) / (2 * blur_width**2)) # Gaussian
-            # blur = 1 / (1 + dist2/blur_width**2) # Lorentzian
-
-            blur /= np.sum(blur)
-            self.psf = convolve(self.psf, blur, mode="same")
-
-        # Compute derivatives
-        self.compute_kernels(source.use_nn)
+            self.blur(blur_width)
+        else:
+            self.compute_kernels()
 
         # Zoom
         zoom_ratio = current_pixel_width / source.pixel_size
@@ -130,6 +126,31 @@ class PSF:
             self.clip(len(source.pixel_centers) * 2)
         
         assert(self.psf.shape[0] % 2 == 1)
+
+    def blur(self, sigma):
+        """Blur the PSF by a Gaussian with standard deviation sigma (arcsec)."""
+        # Blur
+        if sigma == 0:
+            self.psf = np.copy(self.unblurred_psf)
+        else:
+            xs, ys = np.meshgrid(self.pixel_centers, self.pixel_centers)
+            blur = np.exp(-(xs*xs + ys*ys) / (2 * sigma**2)) # Gaussian
+            blur /= np.sum(blur)
+            self.psf = convolve(self.unblurred_psf, blur, mode="same")
+
+        # Compute derivatives
+        self.compute_kernels()
+
+    def blur_custom_kernel(self, kernel):
+        """Blur the PSF by a kernel, which should be a 2d array with pixels assumed to be the same
+        size as this PSF's pixels. The width of the sky calibrated pixels is 2.9729"""
+        # Blur
+        kernel = np.copy(kernel) / np.sum(kernel)
+        flat = convolve(np.ones_like(self.unblurred_psf), kernel, mode="same")
+        self.psf = convolve(self.unblurred_psf, kernel, mode="same") / flat
+
+        # Compute derivatives
+        self.compute_kernels()
 
     def clip(self, new_width):
         '''Clip the PSF to a new width in pixels'''
@@ -167,7 +188,7 @@ class PSF:
         self.psf /= np.sum(self.psf)
         self.pixel_centers = self.pixel_centers[middle-new_width//2:middle+new_width//2+1]
 
-    def compute_kernels(self, use_nn):
+    def compute_kernels(self):
         '''Compute derivatives of the PSF.'''
         self.d_zs = convolve(self.psf, KERNEL_ZS / self.pixel_width**2, mode="same") / np.nansum(self.psf)
         self.d_qs = convolve(self.psf, KERNEL_QS / self.pixel_width**2, mode="same") / np.nansum(self.psf)
@@ -185,6 +206,6 @@ class PSF:
         if header is None:
             header = fits.Header();
         header['PIXANG'] = (self.pixel_width, "Angular size of each pixel in arcsec")
-        hdu = fits.ImageHDU(self.psf, header=header)
+        hdu = fits.ImageHDU(np.flip(np.transpose(self.psf)), header=header)
         hdul = fits.HDUList([blank, hdu])
         hdul.writeto(f"{directory}/PSF_MMA{self.det+1}.fits", overwrite=True)

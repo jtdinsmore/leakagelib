@@ -76,8 +76,8 @@ def fit_extended(source, psfs, spectrum, is_obs, qs_obs, us_obs, initial_source_
 
         fig.suptitle("Iteration: 0")
 
-        ax_q.set_title("$q_\mathrm{src}$")
-        ax_u.set_title("$u_\mathrm{src}$")
+        ax_q.set_title("$q_\\mathrm{src}$")
+        ax_u.set_title("$u_\\mathrm{src}$")
         ax_q.set_ylabel("y [pixels]")
         for axs in [ax_q, ax_u]:
             axs.set_xlabel("x [pixels]")

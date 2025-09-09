@@ -69,15 +69,22 @@ class EnergyDependence:
         self.interpolator_kurtosis = interp1d(energies, kurtosis4, bounds_error=False, fill_value=(kurtosis4[0], kurtosis4[-1]))
         self.interpolator_mu = interp1d(energies, mu, bounds_error=False, fill_value=(mu[0], mu[-1]))
 
-    def default(use_nn):
-        '''Use the default energy dependence depending on whether the analysis method is NN or Mom'''
+    def default(use_nn, use_mu=True):
+        '''Use the default energy dependence depending on whether the analysis method is NN or Mom
+        # Arguments
+        * use_nn: set to True to use the neural net Leakage parameters and modulation factor, false for Moments
+        * use_mu: set to False to ignore modulation factor. You should only use this setting if you plan to handle modulation factor event-by-event
+        '''
         if use_nn:
-            return EnergyDependence.lawrence_nn()
+            return EnergyDependence.lawrence_nn(use_mu)
         else:
-            return EnergyDependence.lawrence_mom()
+            return EnergyDependence.lawrence_mom(use_mu)
     
     def constant(sigma_parallel, use_nn):
-        '''Get the energy dependent functions for sigma parallel and sigma perp assuming no sigma perp, no kurtosis, and constant energy dependence'''
+        '''Get the energy dependent functions for sigma parallel and sigma perp assuming no sigma perp, no kurtosis, and constant energy dependence
+        # Arguments
+        * use_mu: set to False to ignore modulation factor. You should only use this setting if you plan to handle modulation factor event-by-event
+        '''
         energies = np.array([1., 10.])
         sigma_parallel2 = np.ones_like(energies) * sigma_parallel**2
         sigma_perp2 = np.zeros_like(energies)
@@ -88,8 +95,11 @@ class EnergyDependence:
             mu = modulation.get_mom_modf(energies)
         return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, mu)
 
-    def lawrence_nn():
-        '''Get the energy dependent functions for sigma parallel and sigma perp for Neural Net data'''
+    def lawrence_nn(use_mu=True):
+        '''Get the energy dependent functions for sigma parallel and sigma perp for Neural Net data
+        # Arguments
+        * use_mu: set to False to ignore modulation factor. You should only use this setting if you plan to handle modulation factor event-by-event
+        '''
         # Generated in vis/get-true-trends
         values = np.load(f"{LEAKAGE_DATA_DIRECTORY}/sigma-tot/sigma-tot.npy")
         energies = values[0]
@@ -101,10 +111,17 @@ class EnergyDependence:
         sigma_perp2 = sigma_perps**2
         kurtosis4 = (NN_KURT_SCALE * kurts)**4
 
-        return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, modulation.get_nn_modf(energies))
+        mu = modulation.get_nn_modf(energies)
+        if not use_mu:
+            mu = np.ones_like(mu)
+
+        return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, mu)
     
-    def lawrence_mom():
-        '''Get the energy dependent functions for sigma parallel and sigma perp for Moments data'''
+    def lawrence_mom(use_mu=True):
+        '''Get the energy dependent functions for sigma parallel and sigma perp for Moments data
+        # Arguments
+        * use_mu: set to False to ignore modulation factor. You should only use this setting if you plan to handle modulation factor event-by-event
+        '''
         # Generated in vis/get-true-trends
         values = np.load(f"{LEAKAGE_DATA_DIRECTORY}/sigma-tot/sigma-tot.npy")
         energies = values[0]
@@ -116,7 +133,26 @@ class EnergyDependence:
         sigma_perp2 = sigma_perps**2
         kurtosis4 = (MOM_KURT_SCALE * kurts)**4
 
-        return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, modulation.get_mom_modf(energies))
+        mu = modulation.get_mom_modf(energies)
+        if not use_mu:
+            mu = np.ones_like(mu)
+
+        return EnergyDependence(energies, sigma_parallel2, sigma_perp2, kurtosis4, mu)
+    
+    def evaluate(self, energies):
+        '''Get the leakage parameters for an array of event energies
+        # Arguments: 
+            * energies: array of event energies in keV
+
+        # Returns:
+            * A tuple of sigma_parallels, sigma_perps, and kurts.
+        '''
+        return (
+            self.interpolator_parallel(energies),
+            self.interpolator_perp(energies),
+            self.interpolator_kurtosis(energies)
+        )
+
 
     def get_params(self, spectrum):
         '''Get the average sigma plus and sigma minus for a given source.
@@ -130,6 +166,7 @@ class EnergyDependence:
         sigma_perp2_vals = spectrum.sample_from_interpolator(self.interpolator_perp)
         k_parallel4 = spectrum.sample_from_interpolator(self.interpolator_kurtosis)
         mu_vals = spectrum.sample_from_interpolator(self.interpolator_mu)
+        mu_vals[np.isnan(mu_vals)] = 0
 
         k_perp4 = 3 * sigma_perp2_vals**2
         k_both = 0
