@@ -4,7 +4,6 @@ class FitData:
     """A class that handles converting between parameter values and an array that can be fed into a minimizer."""
     def __init__(self, fit_settings):
         """Create the FitData from a FitSettings object."""
-
         self.qu_indices = {}
         self.flux_indices = {}
         self.fixed_qu = {}
@@ -30,8 +29,9 @@ class FitData:
             self.flux_indices[key] += self.num_qu_params
 
         self.fixed_blur = fit_settings.fixed_blur
-        self.n_sigma_params = 1 if self.fixed_blur is None else 0
+        self.num_sigma_params = 1 if self.fixed_blur is None else 0
 
+        self.extra_param_names = fit_settings.extra_param_names
 
     def param_to_value(self, params, param, source_name=None):
         """
@@ -83,6 +83,10 @@ class FitData:
             if self.fixed_blur is not None: return None
             return self.num_qu_params + self.num_flux_params
         
+        if param in self.extra_param_names:
+            index = self.extra_param_names.index(param)
+            return self.num_qu_params + self.num_flux_params + self.num_sigma_params + index
+        
         raise Exception(f"Could not recognize parameter {param}")
 
     def index_to_param(self, index):
@@ -104,12 +108,14 @@ class FitData:
         index -= self.num_qu_params + self.num_flux_params
         if self.fixed_blur is None:
             if index == 0: return "sigma", None
-            index -= self.n_sigma_params
-            
+            index -= self.num_sigma_params
+
+        if index < len(self.extra_param_names):
+            return (self.extra_param_names[index], None)
+        index -= len(self.extra_param_names)
+
         raise Exception(f"Could not recognize index {original_index}")
 
     def length(self):
-        length = self.num_qu_params + self.num_flux_params
-        if self.fixed_blur is None: length += 1
-
+        length = self.num_qu_params + self.num_flux_params + self.num_sigma_params + len(self.extra_param_names)
         return length

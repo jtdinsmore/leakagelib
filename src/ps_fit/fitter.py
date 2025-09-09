@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.optimize import minimize
-import copy, warnings
+import copy
 from .fit_data import FitData
 from .fit_result import FitResult, get_hess
 from .pcube import get_pcube
@@ -72,6 +72,9 @@ class Fitter:
                 steps.append(1e-4)
             elif ptype == "sigma":
                 steps.append(1e-2)
+            elif ptype in self.fit_settings.extra_param_names:
+                index = self.fit_settings.extra_param_names.index(ptype)
+                steps.append(self.fit_settings.extra_param_data[index][2])
             else:
                 raise Exception(f"Coord type {ptype} not recognized")
             
@@ -233,7 +236,6 @@ class Fitter:
             source_probs += np.mean(evt_probs, axis=1)
 
         for i in range(len(self.fit_settings.sources)):
-            if self.fit_settings.particles[i]: continue
             if not self.fit_settings.fixed_flux[i]: continue
             norm = self.fit_settings.fixed_flux[i] / source_probs[i]
             break
@@ -286,6 +288,11 @@ class Fitter:
             elif param == "sigma":
                 x0.append(10)
                 bounds.append((0, 30))
+
+            elif param in self.fit_settings.extra_param_names:
+                index = self.fit_settings.extra_param_names.index(param)
+                x0.append(self.fit_settings.extra_param_data[index][0])
+                bounds.append(self.fit_settings.extra_param_data[index][1])
 
             else:
                 raise Exception(f"Parameter {param} not handled")
@@ -343,6 +350,7 @@ class Fitter:
                 spectral_weights = self.fit_settings.spectral_weights[source_index]
                 spectral_mus = self.fit_settings.spectral_mus[source_index]
                 sweeps = self.fit_settings.sweeps[source_index]
+                model_fn = self.fit_settings.model_fns[source_index]
                 if data.det not in self.fit_settings.detectors[source_index]:
                     continue
                 if self.fit_settings.obs_ids[source_index] is not None and (data.obs_id not in self.fit_settings.obs_ids[source_index]):
@@ -352,7 +360,6 @@ class Fitter:
                 q = self.fit_data.param_to_value(params, "q", source_name)
                 u = self.fit_data.param_to_value(params, "u", source_name)
                 f = self.fit_data.param_to_value(params, "f", source_name)
-                source.polarize_net((q, u))
                 if spectral_mus is None:
                     mus = data.evt_mus
                 else:
@@ -369,6 +376,9 @@ class Fitter:
                     new_u = -q * sweeps[data_index][1] + u * sweeps[data_index][0]
                     q = new_q
                     u = new_u
+                if model_fn is not None:
+                    q, u = model_fn(data.evt_times, self.fit_data, params)
+                source.polarize_net((np.mean(q), np.mean(u)))
 
                 # Polarization weights (no need for the 1/2pi)
                 probs = 1 + mus/2 * (data.evt_qs*q + data.evt_us*u)
@@ -404,18 +414,21 @@ class Fitter:
             # if data.det == 1:
             #     import matplotlib.pyplot  as plt
             #     plt.style.use("root")
-            #     line = np.linspace(-50, 50, 42)
+            #     line = np.linspace(-100, 100, 32)
 
             #     fig, (ax1, ax2) = plt.subplots(ncols=2, sharex=True, sharey=True)
             #     counts = np.histogram2d(data.evt_xs, data.evt_ys, (line, line))[0].astype(float)
             #     pred = np.histogram2d(data.evt_xs, data.evt_ys, (line, line), weights=evt_probs)[0].astype(float)/counts
-            #     image = (counts)
+            #     image = np.log(1+counts)
             #     ax1.pcolormesh(line, line, np.transpose(image))
-            #     image = (pred)
+            #     ax1.set_title("Data")
+            #     image = np.log(1+pred)
             #     image[~np.isfinite(image)] = 0
-            #     ax2.pcolormesh(line, line, np.transpose(pred))
+            #     ax2.pcolormesh(line, line, np.transpose(image))
+            #     ax2.set_title("Prediction")
             #     ax1.set_aspect("equal")
             #     ax2.set_aspect("equal")
+            #     fig.suptitle(", ".join([f"{p:.2f}" for p in params]))
             #     fig.savefig("dbg.png")
             #     plt.close("all")
             #     import time
@@ -435,6 +448,6 @@ class Fitter:
                 problem = "Your background source might be at fault - is the ROI you provided correct?"
                     
             param_str = "\n".join([f"{self.fit_data.index_to_param(i)}: {params[i]}" for i in range(len(params))])
-            raise Exception(f"The log prob was not finite ({log_prob}) with parameters\n{param_str}\n This happens when all your sources predict zero flux in a region of parameter space where at least one event was detected.\n\n{problem}")
-
+            raise Exception(f"The log prob was not finite ({log_prob}) with parameters\n{param_str}\nThis happens when all your sources predict zero flux in a region of parameter space where at least one event was detected.\n\n{problem}")
+        
         return log_prob

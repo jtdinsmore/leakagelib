@@ -135,12 +135,12 @@ class IXPEData:
             polarizations.append(polarization)
         return np.mean(polarizations, axis=0)
 
-    def __init__(self, source, file_name, energy_cut=(2, 8), weight_image=False, bin=True):
+    def __init__(self, source, file_names, energy_cut=(2, 8), weight_image=False, bin=True):
         '''Load the data from a single IXPE file
         
         ## Arguments:
         - `source`: a `Source` object used to set the size of the `IXPEData` images. The actual source flux is not read, just whether the source is NN or Mom and the shape of the image. If you do not wish to bin the data, you can pass a `Source.no_image`
-        - `file_name`: A tuple `(event_name, hk_name)`. `event_name` points to the event file. `hk_name` points to the hk file.
+        - `file_names`: A tuple `(event_name, hk_name)`. `event_name` points to the event file. `hk_name` points to the hk file.
         - `energy_cut`: Event energy retain in keV. Default 2--8.
         - `weight_image`: Set to `True` to weight the Q and U image by weights
         - `bin`: Set to `False` if you don't wish to bin the data. If you passed a source created with `Source.no_image`, then the bin argument will be ignored and bins will not be produced.
@@ -152,10 +152,13 @@ class IXPEData:
         if not source.has_image:
             bin = False
 
-        with fits.open(file_name[0]) as hdul:
+        with fits.open(file_names[0]) as hdul:
             events = hdul[1].data
             self.det = int(hdul[1].header["DETNAM"][2:])
-            self.obs_id = hdul[1].header['OBS_ID']
+            if "OBS_ID" in hdul[1].header:
+                self.obs_id = hdul[1].header['OBS_ID']
+            else:
+                self.obs_id = "None"
             if type(self.obs_id) == int:
                 self.obs_id = f"{self.obs_id:08d}"
 
@@ -187,7 +190,7 @@ class IXPEData:
                 self.evt_ws = events["W_MOM"].astype(np.float64)
 
         # Extract orientation from the housekeeping file too
-        with fits.open(file_name[1]) as hdu:
+        with fits.open(file_names[1]) as hdu:
             self.rotation = float(hdu[0].header['PADYN'])
 
         self.bin = bin
@@ -205,7 +208,7 @@ class IXPEData:
         self.counts = len(events)
         self.weight_image = weight_image
         self.use_nn = source.use_nn
-        self.filename = file_name[0]
+        self.filename = file_names[0]
         self.offsets = np.zeros(2)
 
         self.extract_spectrum()

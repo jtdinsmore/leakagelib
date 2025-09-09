@@ -39,6 +39,9 @@ class FitSettings:
         self.spectral_mus = []
         self.temporal_weights = []
         self.sweeps = []
+        self.extra_param_names = []
+        self.extra_param_data = []
+        self.model_fns = []
         self.roi = None
         self.fixed_blur = 0
 
@@ -49,36 +52,41 @@ class FitSettings:
         normalization is not ambiguous, and it sets store_info in each source object if possible
         """
 
+        # Check if there are background weights
+        bg_weights = False
+        for data in self.datas:
+            if np.any(data.evt_bg_chars > 0):
+                bg_weights = True
+            
+        # Check if there is a particle source and an energy-weighted source
+        spectral_weights = False
+        particle_source_names = []
+        for (name, particle, weights) in zip(self.names, self.particles, self.spectral_weights):
+            if particle: 
+                particle_source_names.append(name)
+            if weights is not None:
+                spectral_weights = True
+
+        # Add the particle spectrum
+        if spectral_weights:
+            if self.sources[0].use_nn:
+                spectrum = get_nn_bkg_spectrum()
+            else:
+                spectrum = lambda e: (e**-1.87)
+            for name in particle_source_names:
+                self.set_spectrum(name, spectrum, use_rmf=False)
+
+        # Warn if no particle source added
+        if len(particle_source_names) == 0 and bg_weights:
+            warnings.warn("Your data set has background characters assigned, but you did not add a "\
+                          "particle component. Particles will not be modeled. Was this intentional?")
+
         # Fix a flux
         if np.all([self.fixed_flux[i] is None for i in range(len(self.names))]):
             name = self.names[0]
             warnings.warn(f"All of your sources had variable flux. The fitter requires"\
             f" one of the fluxes to be fixed. Fixing the flux associated with source {name} to 1.")
             self.fix_flux(name, 1)
-
-        # Make a particle source
-        need_particle_source = False
-        for data in self.datas:
-            if np.any(data.evt_bg_chars > 0):
-                need_particle_source = True
-                break
-        if need_particle_source:
-            self.add_background("pbkg", override_checks=True)
-            self.particles[-1] = True
-            self.fix_qu("pbkg", (0,0))
-            
-            # Check if the particle spectrum should be added
-            for w in self.spectral_weights:
-                if w is not None:
-                    if self.sources[0].use_nn:
-                        nn_spectrum = get_nn_bkg_spectrum()
-                        self.set_spectrum("pbkg", nn_spectrum, use_rmf=False)
-                    else:
-                        self.set_spectrum("pbkg", lambda e: (e**-1.87), use_rmf=False)
-                    break
-        else:
-            warnings.warn("None of your data sets have nonzero bg_probs, so background particle" \
-            " weighting will not be done.")
         
         # Set store info
         store_info = True
@@ -127,8 +135,6 @@ class FitSettings:
     def check_name(self, name):
         if name in self.names:
             raise Exception(f"The name {name} is not unique. Please pass another name.")
-        if name == "pbkg":
-            raise Exception("The name pbkg is reserved")
 
 
     def add_point_source(self, name="src", det=(1,2,3,), obs_ids=None):
@@ -137,9 +143,9 @@ class FitSettings:
         # Arguments:
         * name (optional): a string representing the name of the source. Default: src
         * det (optional): A tuple containing the detector numbers the source should apply to.
+        * obs_ids (optional): A tuple containing the observation IDs the source should apply to.
         Default is (1,2,3)
         """
-        self.check_name(name)
         use_nn = self.datas[0].use_nn
 
         if len(self.sources) == 0:
@@ -150,21 +156,9 @@ class FitSettings:
             pixel_width = self.sources[0].pixel_size
 
         source = Source.delta(use_nn, num_pixels, pixel_width)
-        self.sources.append(source)
-        self.names.append(name)
-        self.detectors.append(det)
-        self.obs_ids.append(obs_ids)
-        self.fixed_qu.append(None)
-        self.fixed_flux.append(None)
-        self.guess_qu.append((None, None))
-        self.guess_f.append(None)
-        self.particles.append(False)
-        self.spectral_weights.append(None)
-        self.spectral_mus.append(None)
-        self.temporal_weights.append(None)
-        self.sweeps.append(None)
+        self.add_source(source, name, det, obs_ids)
     
-    def add_background(self, name="bkg", det=(1,2,3), obs_ids=None, override_checks=False):
+    def add_background(self, name="bkg", det=(1,2,3), obs_ids=None):
         """
         Add a uniform, polarized background to the fit.
         # Arguments:
@@ -181,31 +175,36 @@ class FitSettings:
         set to the PSF native size of 2.9729 arcsec and the number of pixels is chosen to be the
         largest radius of events in the data set.
         """
-        if not override_checks:
-            self.check_name(name)
         use_nn = self.datas[0].use_nn
-        
         if len(self.sources) == 0:
             num_pixels = get_num_pixels(self.datas[0])
             pixel_width = 2.9729
         else:
             num_pixels = self.sources[0].source.shape[0]
             pixel_width = self.sources[0].pixel_size
-
         source = Source.uniform(use_nn, num_pixels, pixel_width)
-        self.sources.append(source)
-        self.names.append(name)
-        self.detectors.append(det)
-        self.obs_ids.append(obs_ids)
-        self.fixed_qu.append(None)
-        self.fixed_flux.append(None)
-        self.guess_qu.append((None, None))
-        self.guess_f.append(None)
-        self.particles.append(False)
-        self.spectral_weights.append(None)
-        self.spectral_mus.append(None)
-        self.temporal_weights.append(None)
-        self.sweeps.append(None)
+        self.add_source(source, name, det, obs_ids)
+    
+    def add_particle_source(self, name="bkg", det=(1,2,3), obs_ids=None):
+        """
+        Add a uniform particle background component to the fit.
+        # Arguments:
+        * name: a string representing the name of the source. Default: bkg
+        * det (optional): A tuple containing the detector numbers the source should apply to.
+        Default is (1,2,3)
+        * obs_ids (optional): A tuple containing the observation IDs the source should apply to.
+        Default is None, meaning all observations
+        """
+        use_nn = self.datas[0].use_nn
+        if len(self.sources) == 0:
+            num_pixels = get_num_pixels(self.datas[0])
+            pixel_width = 2.9729
+        else:
+            num_pixels = self.sources[0].source.shape[0]
+            pixel_width = self.sources[0].pixel_size
+        source = Source.uniform(use_nn, num_pixels, pixel_width)
+        self.add_source(source, name, det, obs_ids)
+        self.particles[-1] = True
     
     def add_source(self, source, name, det=(1,2,3,), obs_ids=None):
         """
@@ -229,6 +228,7 @@ class FitSettings:
         self.spectral_weights.append(None)
         self.spectral_mus.append(None)
         self.temporal_weights.append(None)
+        self.model_fns.append(None)
         self.sweeps.append(None)
         
     def set_spectrum(self, source_name, spectrum, use_rmf=True, duty_cycle=None):
@@ -325,19 +325,50 @@ class FitSettings:
         """
         Set a polarization sweep model for the source.
         # Arguments
-        * sweep: a tuple containing two functions. The first should take in time and return q (normalized Stokes coefficient), and the second should return u. A fit will then be run to determine normalization constants.
-
-        Assigns time weights to each event.
+        * source_name: the name of the source to apply the sweep model to
+        * sweep: a function which takes in event time and returns (q, u) for a polarization model (normalized Stokes coefficient). A fit will then be run to determine normalization constants.
         """
         if not source_name in self.names:
             raise Exception(f"The source {source_name} is not in the list of sources.")
         index = self.names.index(source_name)
+        if self.model_fns[index] is not None:
+            raise Exception("You cannot set a sweep for a source that you have already set a polarization model function for")
 
         sweeps = []
         for data in self.datas:
-            sweeps.append([sweep[0](data.evt_times), sweep[1](data.evt_times)])
+            sweeps.append(sweep(data.evt_times))
 
         self.sweeps[index] = sweeps
+        
+    def set_model_fn(self, source_name, model_fn):
+        """
+        Set a polarization model for the source with fittable parameters. Set the fittable parameters by calling FitSettings.add_param.
+        # Arguments
+        * source_name: the name of the source to apply the polarization model to
+        * model_fn: a function that returns (q, u) from a polarization model (normalized Stokes coefficient). Both will take three arguments: event time, a FitData object, and an array of parameters. You should get the value of a parameter by calling `FitData.param_to_value(param_array, parameter_name)`. This will return the value of the parameter named "parameter_name".
+        """
+        if not source_name in self.names:
+            raise Exception(f"The source {source_name} is not in the list of sources.")
+        index = self.names.index(source_name)
+        if self.sweeps[index] is not None:
+            raise Exception("You cannot set a model function for a source that you have already set a polarization sweep for")
+        
+        self.model_fns[index] = model_fn
+        self.fix_qu(source_name, (0, 0)) # Turn off the q and u values from this source, since this function overwrites them
+
+    def add_param(self, name, initial_value=0, bounds=(None, None), num_diff_step=1e-3):
+        """
+        Add a parameter for the fitter. You should only use this function if you have used `set_model_fn` to set a polarization model for a source, and now you need to add parameters for that model.
+        # Arguments
+        * name: Parameter name
+        * initial_value: Initial value for the fitter. Default: 0
+        * bounds: Bounds for the parameter. Default: no bounds.
+        * num_diff_step: Step size to use when numerically computing the uncertainties
+        """
+        if name == "q" or name == "u" or name == "f" or name == "sigma" or name in self.extra_param_names:
+            raise Exception(f"The name {name} cannot be used twice. Parameter names `q`, `u`, `f`, and `sigma` are forbidden.")
+        self.extra_param_names.append(name)
+        self.extra_param_data.append((initial_value, bounds, num_diff_step))
 
     def fix_qu(self, source_name, qu):
         """

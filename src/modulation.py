@@ -4,7 +4,7 @@ from .settings import LEAKAGE_DATA_DIRECTORY
 
 def load_generic_modf_file(filename):
     energies, modfs = np.load(filename)
-    return interp1d(energies, modfs, bounds_error=False, fill_value=1)
+    return interp1d(energies, modfs, bounds_error=False, fill_value=0)
 
 
 def get_mom_modf(energies):
