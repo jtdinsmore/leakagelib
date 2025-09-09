@@ -29,15 +29,6 @@ import leakagelib
 ## Files
 
 - **examples** contains example code for the main functions of this library:
-    - **examples/leakage-severity.py** plots the distribution of leakage PD as predicted by LeakageLib. You can use this to determine how severe leakage is. You can also change the spectrum of the source and its spatial distribution if desired.
-
-    - **examples/point-source.py** predicts leakage patterns for a given point source and compares to observations. This code will fail if you have not downloaded the point source observation in question (GX 9+9, obsid 01002401). Only the unzipped L2 and housekeeping files are needed (in fact, only the `*att*` housekeeping files are needed, which give the roll of the spacecraft).
-
-    - **examples/predict.py** predicts leakage patterns for a synthetic nebula. This requires no downloads.
-
-    - **example/extract.py** extracts true source polarization from synthetic observations of that nebula and compares them to the truth.
-
-    - **examples/psf-fit.py** fits for the polarization of a source, using the PSF to assign a probability that the event comes from the source or background.
 
 - **data**: contains data used by the algorithm, including the sigma_tot measured from simulations and the sky-calibrated PSFs produced by the paper accompanying this software package.
 

@@ -163,6 +163,25 @@ class Source:
         else:
             image[num_pixels//2, num_pixels//2] = 1
         return Source(image, use_nn, num_pixels, pixel_size, store_info, is_point_source=True)
+    
+    def gaussian(use_nn, num_pixels, pixel_size, sigma, store_info=False):
+        '''Creates a Gaussian-shaped Source object
+
+        # Arguments:
+            - `use_nn`: True if you will later choose to run your results with NN-reconstructed data. False for moments-reconstructed data
+            - `num_pixels`: number of pixels in the output image. An integer is required and an odd integer is recommended.
+            - `pixel_size`: width of each pixel in arcseconds.
+            - `sigma`: standard deviation of the Gaussian in arcsec
+            - `store_info`: Set to true to store info from the source and PSF to speed up some computations. This forces you to manually call `invalidate_psf` and `invalidate_source_polarization` if you use it.
+        '''
+
+        line = np.arange(num_pixels).astype(float) * pixel_size
+        line -= line[-1] / 2
+        dist2 = np.sum(np.array(np.meshgrid(line, line))**2, axis=0)
+        gaussian = np.exp(-dist2 / (2 * sigma**2))
+        gaussian /= np.sum(gaussian)
+
+        return Source(gaussian, use_nn, num_pixels, pixel_size, store_info)
 
     def uniform(use_nn, num_pixels, pixel_size, store_info=False):
         '''Creates a Source object representing a uniform background
