@@ -49,7 +49,6 @@ class Fitter:
 
     def display_sources(self, fig_name):
         import matplotlib.pyplot as plt
-        plt.style.use("root")
         fig, axs = plt.subplots(nrows=len(self.fit_settings.sources), sharex=True, sharey=True)
         for ax, source, name in zip(axs, self.fit_settings.sources, self.fit_settings.names):
             image = np.flip(np.log(1+source.source), axis=1)

@@ -81,6 +81,11 @@ class FitSettings:
             warnings.warn("Your data set has background characters assigned, but you did not add a "\
                           "particle component. Particles will not be modeled. Was this intentional?")
 
+        # Warn if no particle source added
+        if len(particle_source_names) > 0 and not bg_weights:
+            raise Exception("You added a particle source, but there are no particle weights in this" \
+            " data set. Please remove the particle source or use a data set with weights.")
+
         # Fix a flux
         if np.all([self.fixed_flux[i] is None for i in range(len(self.names))]):
             name = self.names[0]
@@ -185,7 +190,7 @@ class FitSettings:
         source = Source.uniform(use_nn, num_pixels, pixel_width)
         self.add_source(source, name, det, obs_ids)
     
-    def add_particle_source(self, name="bkg", det=(1,2,3), obs_ids=None):
+    def add_particle_source(self, name="pbkg", det=(1,2,3), obs_ids=None):
         """
         Add a uniform particle background component to the fit.
         # Arguments:
