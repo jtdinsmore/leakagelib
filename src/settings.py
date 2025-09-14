@@ -1,5 +1,6 @@
 # This variable contains the directories in which IXPE data is stored. Specifically, if your data is stored in "DIR/OBS_ID/event_l2/FITS_FILE.fits", then DATA_DIRECTORIES should contain "DIR" only.
 DATA_DIRECTORIES = [
+    "/Users/jtd/Documents/research/ixpepl/data",
 ]
 
 # Do not change

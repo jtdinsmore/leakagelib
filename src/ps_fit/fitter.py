@@ -379,13 +379,14 @@ class Fitter:
                     q, u = model_fn(data.evt_times, self.fit_data, params)
                 source.polarize_net((np.mean(q), np.mean(u)))
 
-                # Polarization weights (no need for the 1/2pi)
-                probs = 1 + mus/2 * (data.evt_qs*q + data.evt_us*u)
-
-                # Particle weights
                 if self.fit_settings.particles[source_index]:
+                    # Polarization weights (no need for the 1/2pi)
+                    probs = 1 + 0.5 * (data.evt_qs*q + data.evt_us*u) # No modulation factor included 
                     clipped_chars = np.clip(data.evt_bg_chars, 1e-5, 1-1e-5)
                     probs *= clipped_chars / (1 - clipped_chars)
+                else:
+                    # Polarization weights (no need for the 1/2pi)
+                    probs = 1 + mus/2 * (data.evt_qs*q + data.evt_us*u)
 
                 # Flux weights
                 probs *= f
