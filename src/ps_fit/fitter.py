@@ -371,8 +371,8 @@ class Fitter:
                     
                 if sweeps is not None:
                     # Use the time-dependent PA sweep models
-                    new_q = q * sweeps[data_index][0] + u * sweeps[data_index][1]
-                    new_u = -q * sweeps[data_index][1] + u * sweeps[data_index][0]
+                    new_q = q * sweeps[data_index][0] - u * sweeps[data_index][1]
+                    new_u = q * sweeps[data_index][1] + u * sweeps[data_index][0]
                     q = new_q
                     u = new_u
                 if model_fn is not None:
