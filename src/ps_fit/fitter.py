@@ -40,11 +40,20 @@ class Fitter:
         self.get_flux_estimates()
 
     def __repr__(self):
-        out = "PARAMETERS:\n"
-        out = "Source:\t Parameter\n"
+        out = "FITTED PARAMETERS:\n"
+        out += "Source\tParam\n"
         for i in range(self.fit_data.length()):
-            param, name = self.fit_data.index_to_param(i)
-            out += f"{name}:\t{param}\n"
+            param_type, name = self.fit_data.index_to_param(i)
+            out += f"{name}:\t{param_type}\n"
+        out += '\n'
+        out += "FIXED PARAMETERS:\n"
+        out += "Source\tParam\tValue\n"
+        for source_name in self.fit_settings.names:
+            if source_name in self.fit_data.fixed_qu:
+                out += f"{source_name}:\tq\t{self.fit_data.fixed_qu[source_name][0]}\n"
+                out += f"{source_name}:\tu\t{self.fit_data.fixed_qu[source_name][1]}\n"
+            if source_name in self.fit_data.fixed_flux:
+                out += f"{source_name}:\tf\t{self.fit_data.fixed_flux[source_name]}\n"
         return out
 
     def display_sources(self, fig_name):

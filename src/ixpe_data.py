@@ -211,6 +211,7 @@ class IXPEData:
         self.weight_image = weight_image
         self.use_nn = source.use_nn
         self.filename = file_names[0]
+        self.hk_filename = file_names[1]
         self.offsets = np.zeros(2)
 
         self.extract_spectrum()
