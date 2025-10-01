@@ -452,7 +452,7 @@ class Fitter:
             if problem is None:
                 for name in self.fit_settings.names:
                     if self.fit_data.param_to_index("f", name) is not None and params[self.fit_data.param_to_index("f", name)] == 0:
-                        problem = f"Your flux for source {name} is equal to zero. Is that a background region?"
+                        problem = f"Your flux for source {name} is equal to zero."
             if problem is None:
                 problem = "Your background source might be at fault - is the ROI you provided correct?"
                     
