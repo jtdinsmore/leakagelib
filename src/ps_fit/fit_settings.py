@@ -9,9 +9,11 @@ USE_SPECTRAL_MUS = False # Set to True to account for the fact that the finite d
 # resolution means that the mu corresponding to the measured energy is different from the true mu,
 # which depends on the true energy. Accounting for this will lower mu on average.
 
-def get_num_pixels(data):
-    max_radius = np.sqrt(np.max(data.evt_xs**2 + data.evt_ys**2))
-    n_pixels = int(np.ceil(2 * max_radius / 2.9729)) + 1
+def get_num_pixels(datas):
+    max_radius = 0
+    for data in datas:
+        max_radius = max(max_radius, np.sqrt(np.max(data.evt_xs**2 + data.evt_ys**2)))
+    n_pixels = int(np.ceil(2 * max_radius / 2.9729)) + 5 # Inflate the radius by 5 pixels just for safety
     if n_pixels % 2 == 0:
         n_pixels += 1
     return n_pixels
@@ -154,7 +156,7 @@ class FitSettings:
         use_nn = self.datas[0].use_nn
 
         if len(self.sources) == 0:
-            num_pixels = get_num_pixels(self.datas[0])
+            num_pixels = get_num_pixels(self.datas)
             pixel_width = 2.9729
         else:
             num_pixels = self.sources[0].source.shape[0]
@@ -182,7 +184,7 @@ class FitSettings:
         """
         use_nn = self.datas[0].use_nn
         if len(self.sources) == 0:
-            num_pixels = get_num_pixels(self.datas[0])
+            num_pixels = get_num_pixels(self.datas)
             pixel_width = 2.9729
         else:
             num_pixels = self.sources[0].source.shape[0]
@@ -202,7 +204,7 @@ class FitSettings:
         """
         use_nn = self.datas[0].use_nn
         if len(self.sources) == 0:
-            num_pixels = get_num_pixels(self.datas[0])
+            num_pixels = get_num_pixels(self.datas)
             pixel_width = 2.9729
         else:
             num_pixels = self.sources[0].source.shape[0]
