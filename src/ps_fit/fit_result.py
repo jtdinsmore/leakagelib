@@ -32,7 +32,7 @@ class FitResult:
             self.sigmas[fit_data.index_to_param(i)] = np.sqrt(sigma2)
         self.fun = best_like
         self.message = message
-        self.fit_settings = fit_settings
+        self.source_names = fit_settings.names
         self.fit_data = fit_data
         self.dof = np.sum([len(data.evt_xs) for data in fit_settings.datas]) - fit_data.length()
 
@@ -64,7 +64,7 @@ class FitResult:
             else:
                 text += f"\t{name} ({index}) = {value:.4f} +/- {unc:.4f}\n"
         text += "\nPolarization:\n"
-        for source_name in self.fit_settings.names:
+        for source_name in self.source_names:
             pd, pa, pd_unc, pa_unc = self.get_pd_pa(source_name)
             if pd is not None:
                 sigma = pd / pd_unc

@@ -44,7 +44,7 @@ def fit(energy_cut=(2,8)):
 
     # If you have particle weights, add a particle background component. 
     # The spectrum is automatically set if you set other components' spectra
-    settings.add_particle_source()
+    settings.add_particle_background()
 
     settings.apply_circular_roi(280) # Tell the fitter how big the fit region is, in arcsec, so that it can normalize the background PDF. It is important that the ROI exactly match the way that you cut the data. If your ROI is not a circle centered on (0, 0), use the apply_roi function with a custom region image.
 

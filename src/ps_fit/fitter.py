@@ -243,6 +243,7 @@ class Fitter:
             evt_probs /= np.sum(evt_probs, axis=0)
             source_probs += np.mean(evt_probs, axis=1)
 
+        norm = 1
         for i in range(len(self.fit_settings.sources)):
             if not self.fit_settings.fixed_flux[i]: continue
             norm = self.fit_settings.fixed_flux[i] / source_probs[i]
