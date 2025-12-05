@@ -3,7 +3,8 @@
 This directory contains examples for the LeakageLib's two main functions: polarization leakage prediction (`leakage-prediction` directory) and precise fitting using various weights (`polarization-extraction` directory).
 
 * `leakage-prediction`:
-    * `point-source.py` (**Start her**e) Predict the polarization leakage of a point source
+    * `point-source.py` (**Start here**) Predict the polarization leakage of a point source
+    * `bkg-fit.py` Fit background parameters to a background region. This step is not necessary in most analyses, since it's better to simultaneously fit background and source parameters to the entire data set. But it can be helpful sometimes to fit for background parameters first, to data within a background region.
     * `predict.py` Predict the polarization leakage of an extended source
     * `extract.py` Deconvolve the polarization leakage pattern
     * `leakage-severity.py` Generate a plot of the polarization leakage PD distribution for NN and Mom reconstruction methods

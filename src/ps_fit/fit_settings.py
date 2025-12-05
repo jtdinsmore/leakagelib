@@ -9,9 +9,11 @@ USE_SPECTRAL_MUS = False # Set to True to account for the fact that the finite d
 # resolution means that the mu corresponding to the measured energy is different from the true mu,
 # which depends on the true energy. Accounting for this will lower mu on average.
 
-def get_num_pixels(data):
-    max_radius = np.sqrt(np.max(data.evt_xs**2 + data.evt_ys**2))
-    n_pixels = int(np.ceil(2 * max_radius / 2.9729)) + 1
+def get_num_pixels(datas):
+    max_radius = 0
+    for data in datas:
+        max_radius = max(max_radius, np.sqrt(np.max(data.evt_xs**2 + data.evt_ys**2)))
+    n_pixels = int(np.ceil(2 * max_radius / 2.9729)) + 5 # Inflate the radius by 5 pixels just for safety
     if n_pixels % 2 == 0:
         n_pixels += 1
     return n_pixels
@@ -154,7 +156,7 @@ class FitSettings:
         use_nn = self.datas[0].use_nn
 
         if len(self.sources) == 0:
-            num_pixels = get_num_pixels(self.datas[0])
+            num_pixels = get_num_pixels(self.datas)
             pixel_width = 2.9729
         else:
             num_pixels = self.sources[0].source.shape[0]
@@ -182,7 +184,7 @@ class FitSettings:
         """
         use_nn = self.datas[0].use_nn
         if len(self.sources) == 0:
-            num_pixels = get_num_pixels(self.datas[0])
+            num_pixels = get_num_pixels(self.datas)
             pixel_width = 2.9729
         else:
             num_pixels = self.sources[0].source.shape[0]
@@ -190,11 +192,11 @@ class FitSettings:
         source = Source.uniform(use_nn, num_pixels, pixel_width)
         self.add_source(source, name, det, obs_ids)
     
-    def add_particle_source(self, name="pbkg", det=(1,2,3), obs_ids=None):
+    def add_particle_background(self, name="pbkg", det=(1,2,3), obs_ids=None):
         """
         Add a uniform particle background component to the fit.
         # Arguments:
-        * name: a string representing the name of the source. Default: bkg
+        * name: a string representing the name of the source. Default: pbkg
         * det (optional): A tuple containing the detector numbers the source should apply to.
         Default is (1,2,3)
         * obs_ids (optional): A tuple containing the observation IDs the source should apply to.
@@ -202,12 +204,24 @@ class FitSettings:
         """
         use_nn = self.datas[0].use_nn
         if len(self.sources) == 0:
-            num_pixels = get_num_pixels(self.datas[0])
+            num_pixels = get_num_pixels(self.datas)
             pixel_width = 2.9729
         else:
             num_pixels = self.sources[0].source.shape[0]
             pixel_width = self.sources[0].pixel_size
         source = Source.uniform(use_nn, num_pixels, pixel_width)
+        self.add_particle_source(source, name, det, obs_ids)
+    
+    def add_particle_source(self, source, name, det=(1,2,3), obs_ids=None):
+        """
+        Add a particle source component to the fit.
+        # Arguments:
+        * source: a Source object containing the flux map of the source
+        * name: a string representing the name of the source
+        * det (optional): A tuple containing the detector numbers the source should apply to.
+        * obs_ids (optional): A tuple containing the observation IDs the source should apply to.
+        Default is None, meaning all observations
+        """
         self.add_source(source, name, det, obs_ids)
         self.particles[-1] = True
     
@@ -218,6 +232,7 @@ class FitSettings:
         * source: a Source object containing the flux map of the source
         * name: a string representing the name of the source
         * det (optional): A tuple containing the detector numbers the source should apply to.
+        * obs_ids (optional): A tuple containing the observation IDs the source should apply to.
         Default is (1,2,3)
         """
         self.check_name(name)
@@ -350,7 +365,7 @@ class FitSettings:
         Set a polarization model for the source with fittable parameters. Set the fittable parameters by calling FitSettings.add_param.
         # Arguments
         * source_name: the name of the source to apply the polarization model to
-        * model_fn: a function that returns (q, u) from a polarization model (normalized Stokes coefficient). Both will take three arguments: event time, a FitData object, and an array of parameters. You should get the value of a parameter by calling `FitData.param_to_value(param_array, parameter_name)`. This will return the value of the parameter named "parameter_name".
+        * model_fn: a function that returns (q, u) from a polarization model (normalized Stokes coefficient). It takes three arguments: event time, a FitData object, and an array of parameters. You should get the value of a parameter by calling `FitData.param_to_value(param_array, parameter_name)`. This will return the value of the parameter named "parameter_name".
         """
         if not source_name in self.names:
             raise Exception(f"The source {source_name} is not in the list of sources.")

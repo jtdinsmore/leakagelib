@@ -40,11 +40,20 @@ class Fitter:
         self.get_flux_estimates()
 
     def __repr__(self):
-        out = "PARAMETERS:\n"
-        out = "Source:\t Parameter\n"
+        out = "FITTED PARAMETERS:\n"
+        out += "Source\tParam\n"
         for i in range(self.fit_data.length()):
-            param, name = self.fit_data.index_to_param(i)
-            out += f"{name}:\t{param}\n"
+            param_type, name = self.fit_data.index_to_param(i)
+            out += f"{name}:\t{param_type}\n"
+        out += '\n'
+        out += "FIXED PARAMETERS:\n"
+        out += "Source\tParam\tValue\n"
+        for source_name in self.fit_settings.names:
+            if source_name in self.fit_data.fixed_qu:
+                out += f"{source_name}:\tq\t{self.fit_data.fixed_qu[source_name][0]}\n"
+                out += f"{source_name}:\tu\t{self.fit_data.fixed_qu[source_name][1]}\n"
+            if source_name in self.fit_data.fixed_flux:
+                out += f"{source_name}:\tf\t{self.fit_data.fixed_flux[source_name]}\n"
         return out
 
     def display_sources(self, fig_name):
@@ -234,6 +243,7 @@ class Fitter:
             evt_probs /= np.sum(evt_probs, axis=0)
             source_probs += np.mean(evt_probs, axis=1)
 
+        norm = 1
         for i in range(len(self.fit_settings.sources)):
             if not self.fit_settings.fixed_flux[i]: continue
             norm = self.fit_settings.fixed_flux[i] / source_probs[i]
@@ -371,21 +381,22 @@ class Fitter:
                     
                 if sweeps is not None:
                     # Use the time-dependent PA sweep models
-                    new_q = q * sweeps[data_index][0] + u * sweeps[data_index][1]
-                    new_u = -q * sweeps[data_index][1] + u * sweeps[data_index][0]
+                    new_q = q * sweeps[data_index][0] - u * sweeps[data_index][1]
+                    new_u = q * sweeps[data_index][1] + u * sweeps[data_index][0]
                     q = new_q
                     u = new_u
                 if model_fn is not None:
                     q, u = model_fn(data.evt_times, self.fit_data, params)
                 source.polarize_net((np.mean(q), np.mean(u)))
 
-                # Polarization weights (no need for the 1/2pi)
-                probs = 1 + mus/2 * (data.evt_qs*q + data.evt_us*u)
-
-                # Particle weights
                 if self.fit_settings.particles[source_index]:
+                    # Polarization weights (no need for the 1/2pi)
+                    probs = 1 + 0.5 * (data.evt_qs*q + data.evt_us*u) # No modulation factor included 
                     clipped_chars = np.clip(data.evt_bg_chars, 1e-5, 1-1e-5)
                     probs *= clipped_chars / (1 - clipped_chars)
+                else:
+                    # Polarization weights (no need for the 1/2pi)
+                    probs = 1 + mus/2 * (data.evt_qs*q + data.evt_us*u)
 
                 # Flux weights
                 probs *= f
@@ -442,7 +453,7 @@ class Fitter:
             if problem is None:
                 for name in self.fit_settings.names:
                     if self.fit_data.param_to_index("f", name) is not None and params[self.fit_data.param_to_index("f", name)] == 0:
-                        problem = f"Your flux for source {name} is equal to zero. Is that a background region?"
+                        problem = f"Your flux for source {name} is equal to zero."
             if problem is None:
                 problem = "Your background source might be at fault - is the ROI you provided correct?"
                     

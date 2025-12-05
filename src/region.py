@@ -122,8 +122,8 @@ class EllipseRegion(Region):
             self.success = True
     
     def check_inside_absolute(self, x, y):
-        rot_x = np.sin(self.angle) * (x - self.ra) + np.cos(self.angle) * (y - self.dec)
-        rot_y = -np.cos(self.angle) * (x - self.ra) + np.sin(self.angle) * (y - self.dec)
+        rot_x = np.sin(self.angle) * (x - self.ra) - np.cos(self.angle) * (y - self.dec)
+        rot_y = np.cos(self.angle) * (x - self.ra) + np.sin(self.angle) * (y - self.dec)
         d = rot_x**2 / self.a**2 + rot_y**2 / self.b**2
         return d < 1
     

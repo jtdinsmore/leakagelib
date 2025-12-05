@@ -95,6 +95,8 @@ class IXPEData:
             if not f.endswith(".fits"): continue
             if not f.startswith("ixpe"): continue
             if not "att" in f: continue
+            if obs_id is not None:
+                if not obs_id in f: continue
             if "det1" in f:
                 hks[0] = f"{hk_directory}/{f}"
             if "det2" in f:
@@ -209,6 +211,7 @@ class IXPEData:
         self.weight_image = weight_image
         self.use_nn = source.use_nn
         self.filename = file_names[0]
+        self.hk_filename = file_names[1]
         self.offsets = np.zeros(2)
 
         self.extract_spectrum()
