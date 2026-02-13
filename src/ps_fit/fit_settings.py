@@ -143,6 +143,17 @@ class FitSettings:
         if name in self.names:
             raise Exception(f"The name {name} is not unique. Please pass another name.")
 
+    def check_source_dim(self, source):
+        if len(self.sources) == 0: return
+        standard_text = "LeakageLib requires each source to have the same dimensions and pixel size."\
+        " If you are creating a source using your own Source object, add that source to the FitSettings" \
+        " first. Make all `add_background` or `add_point_source` calls afterwards. They should use the" \
+        " same image properties as the source you created."
+        if not self.sources[0].source.shape == source.source.shape:
+            raise Exception(f"This source does not have the same image size as previous source(s). {standard_text}")
+        if not self.sources[0].pixel_size == source.pixel_size:
+            raise Exception(f"This source does not have the same pixel size as previous source(s). {standard_text}")
+
 
     def add_point_source(self, name="src", det=(1,2,3,), obs_ids=None):
         """
@@ -236,6 +247,7 @@ class FitSettings:
         Default is (1,2,3)
         """
         self.check_name(name)
+        self.check_source_dim(source)
         self.sources.append(source)
         self.names.append(name)
         self.detectors.append(det)
