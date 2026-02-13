@@ -19,7 +19,7 @@ class IXPEData:
         - `filename` contains the FITS file representing this data set
         - `obs_id` is the observation ID
     * Events
-        - The fields `evt_*`, where *=xs, ys, qs, us, energies, pis, times, ws, mus, and bg_probs, contain the properties of the individual events. Positions are measured in arcsec; q and u are the IXPE-standard 2cos(psi) and 2sin(psi). To retain them, use the `IXPEData.retain(mask)` or `IXPEData.cut_region(reg_file)` functions. Do not manually edit these fields, as this may cause the `IXPEData` to go out of sync with itself.
+        - The fields `evt_*`, where *=xs, ys, qs, us, energies, pis, times, ws, mus, bg_chars, and exposures contain the properties of the individual events. Positions are measured in arcsec; q and u are the IXPE-standard 2cos(psi) and 2sin(psi). To retain them, use the `IXPEData.retain(mask)` or `IXPEData.cut_region(reg_file)` functions. Do not manually edit these fields, as this may cause the `IXPEData` to go out of sync with itself.
         - `offsets` contains the location of the current origin in physical coordinates. Defaults to (0, 0).
     * Images
         - The fields `i`, `q`, `u`, `n`, `w2`, and `cov_inv` contain images of the observation, constructed with the same pixels as the Source provided upon initialization. These fields will exist if you constructed `IXPEData` with bin=True. If you need to recreate these images, call `IXPEData.bin_data()`.
@@ -210,6 +210,7 @@ class IXPEData:
         self.counts = len(events)
         self.weight_image = weight_image
         self.use_nn = source.use_nn
+        self.use_nn_energies = source.use_nn
         self.filename = file_names[0]
         self.hk_filename = file_names[1]
         self.offsets = np.zeros(2)

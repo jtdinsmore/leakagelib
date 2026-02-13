@@ -58,15 +58,23 @@ class Fitter:
 
     def display_sources(self, fig_name):
         import matplotlib.pyplot as plt
-        fig, axs = plt.subplots(nrows=len(self.fit_settings.sources), sharex=True, sharey=True)
+        n_images = len(self.fit_settings.sources)+1
+        fig, axs = plt.subplots(nrows=n_images, figsize=(3,3*n_images), sharex=True, sharey=True)
         for ax, source, name in zip(axs, self.fit_settings.sources, self.fit_settings.names):
             image = np.flip(np.log(1+source.source), axis=1)
             ax.pcolormesh(source.pixel_centers, source.pixel_centers, image, vmin=0)
+            ax.set_xlim(source.pixel_centers[-1], source.pixel_centers[0])
+            ax.set_ylim(source.pixel_centers[0], source.pixel_centers[-1])
             ax.set_aspect("equal")
             ax.set_title(name)
+
+        # Show ROI
+        axs[-1].pcolormesh(source.pixel_centers, source.pixel_centers, np.flip(self.fit_settings.roi, axis=1), vmin=0)
+        axs[-1].set_aspect("equal")
+        axs[-1].set_title("ROI")
+
         axs[-1].set_xlabel("x [arcsec]")
         axs[-1].set_ylabel("y [arcsec]")
-        axs[-1].set_xlim(axs[-1].get_xlim()[1], axs[-1].get_xlim()[0])
         fig.savefig(fig_name)
 
     def get_numerical_uncertainty(self, params):
@@ -391,7 +399,7 @@ class Fitter:
 
                 if self.fit_settings.particles[source_index]:
                     # Polarization weights (no need for the 1/2pi)
-                    probs = 1 + 0.5 * (data.evt_qs*q + data.evt_us*u) # No modulation factor included 
+                    probs = 1 + 0.5 * (data.evt_qs*q + data.evt_us*u) # No modulation factor included
                     clipped_chars = np.clip(data.evt_bg_chars, 1e-5, 1-1e-5)
                     probs *= clipped_chars / (1 - clipped_chars)
                 else:
@@ -422,27 +430,28 @@ class Fitter:
                 log_prob += np.sum(np.log(evt_probs / flux_norms))
 
             # if data.det == 1:
-            #     import matplotlib.pyplot  as plt
-            #     plt.style.use("root")
-            #     line = np.linspace(-100, 100, 32)
+            #     import matplotlib.pyplot as plt
+            #     import time
+            #     line = np.linspace(-250, 250, 101)
 
             #     fig, (ax1, ax2) = plt.subplots(ncols=2, sharex=True, sharey=True)
             #     counts = np.histogram2d(data.evt_xs, data.evt_ys, (line, line))[0].astype(float)
             #     pred = np.histogram2d(data.evt_xs, data.evt_ys, (line, line), weights=evt_probs)[0].astype(float)/counts
             #     image = np.log(1+counts)
-            #     ax1.pcolormesh(line, line, np.transpose(image))
+            #     ax1.pcolormesh(line, line, np.transpose(image), vmin=0)
             #     ax1.set_title("Data")
             #     image = np.log(1+pred)
             #     image[~np.isfinite(image)] = 0
-            #     ax2.pcolormesh(line, line, np.transpose(image))
+            #     ax2.pcolormesh(line, line, np.transpose(image), vmin=0)
             #     ax2.set_title("Prediction")
-            #     ax1.set_aspect("equal")
-            #     ax2.set_aspect("equal")
-            #     fig.suptitle(", ".join([f"{p:.2f}" for p in params]))
+            #     for ax in fig.axes:
+            #         ax.set_aspect("equal")
+            #         ax.set_xlim(line[0], line[-1])
+            #         ax.set_ylim(line[0], line[-1])
+            #     fig.suptitle(", ".join([f"{p:.4f}" for p in params]))
             #     fig.savefig("dbg.png")
             #     plt.close("all")
-            #     import time
-            #     time.sleep(0.25)
+            #     time.sleep(0.1)
 
         if not return_array and not np.isfinite(log_prob):
             problem = None

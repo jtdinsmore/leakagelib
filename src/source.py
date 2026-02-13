@@ -164,25 +164,6 @@ class Source:
             image[num_pixels//2, num_pixels//2] = 1
         return Source(image, use_nn, num_pixels, pixel_size, store_info, is_point_source=True)
     
-    def gaussian(use_nn, num_pixels, pixel_size, sigma, store_info=False):
-        '''Creates a Gaussian-shaped Source object
-
-        # Arguments:
-            - `use_nn`: True if you will later choose to run your results with NN-reconstructed data. False for moments-reconstructed data
-            - `num_pixels`: number of pixels in the output image. An integer is required and an odd integer is recommended.
-            - `pixel_size`: width of each pixel in arcseconds.
-            - `sigma`: standard deviation of the Gaussian in arcsec
-            - `store_info`: Set to true to store info from the source and PSF to speed up some computations. This forces you to manually call `invalidate_psf` and `invalidate_source_polarization` if you use it.
-        '''
-
-        line = np.arange(num_pixels).astype(float) * pixel_size
-        line -= line[-1] / 2
-        dist2 = np.sum(np.array(np.meshgrid(line, line))**2, axis=0)
-        gaussian = np.exp(-dist2 / (2 * sigma**2))
-        gaussian /= np.sum(gaussian)
-
-        return Source(gaussian, use_nn, num_pixels, pixel_size, store_info)
-
     def uniform(use_nn, num_pixels, pixel_size, store_info=False):
         '''Creates a Source object representing a uniform background
 
@@ -303,7 +284,7 @@ class Source:
         self.evt_d_xk_i = {}
         self.evt_d_yk_i = {}
 
-    def polarize_file(self, file_name, source_pixel_size=None):
+    def polarize_file(self, file_name):
         '''Add a source polarization to the incoming photons. The provided file must either be a fits file with Q in hdul[1] and U in hdul[2], or a numpy array of shape (i, j, 2), where the last axis contains the q and u coordinates of the polarization. This automatically calls invalidate_source_polarization'''
 
         image = _process_file(file_name, self.source_size, self.pixel_size, None, [1,2], rescale=True)[0]
@@ -332,18 +313,27 @@ class Source:
 
     def _prepare_psf(self, psf):
         '''Prepare the leakage maps for the given source'''
-        self.d_i_i[psf.det-1] = convolve(self.source, psf.psf)
 
-        self.d_zs_i[psf.det-1] = convolve(self.source, psf.d_zs, fix_edges=False)
-        self.d_qs_i[psf.det-1] = convolve(self.source, psf.d_qs, fix_edges=False)
-        self.d_us_i[psf.det-1] = convolve(self.source, psf.d_us, fix_edges=False)
-
-        self.d_zk_i[psf.det-1] = convolve(self.source, psf.d_zk, fix_edges=False)
-        self.d_qk_i[psf.det-1] = convolve(self.source, psf.d_qk, fix_edges=False)
-        self.d_uk_i[psf.det-1] = convolve(self.source, psf.d_uk, fix_edges=False)
-        self.d_xk_i[psf.det-1] = convolve(self.source, psf.d_xk, fix_edges=False)
-        self.d_yk_i[psf.det-1] = convolve(self.source, psf.d_yk, fix_edges=False)
-
+        if self.is_uniform:
+            self.d_i_i[psf.det-1] = np.copy(self.source)
+            self.d_zs_i[psf.det-1] = np.zeros_like(self.source)
+            self.d_qs_i[psf.det-1] = np.zeros_like(self.source)
+            self.d_us_i[psf.det-1] = np.zeros_like(self.source)
+            self.d_zk_i[psf.det-1] = np.zeros_like(self.source)
+            self.d_qk_i[psf.det-1] = np.zeros_like(self.source)
+            self.d_uk_i[psf.det-1] = np.zeros_like(self.source)
+            self.d_xk_i[psf.det-1] = np.zeros_like(self.source)
+            self.d_yk_i[psf.det-1] = np.zeros_like(self.source)
+        else:
+            self.d_i_i[psf.det-1] = convolve(self.source, psf.psf)
+            self.d_zs_i[psf.det-1] = convolve(self.source, psf.d_zs, fix_edges=False)
+            self.d_qs_i[psf.det-1] = convolve(self.source, psf.d_qs, fix_edges=False)
+            self.d_us_i[psf.det-1] = convolve(self.source, psf.d_us, fix_edges=False)
+            self.d_zk_i[psf.det-1] = convolve(self.source, psf.d_zk, fix_edges=False)
+            self.d_qk_i[psf.det-1] = convolve(self.source, psf.d_qk, fix_edges=False)
+            self.d_uk_i[psf.det-1] = convolve(self.source, psf.d_uk, fix_edges=False)
+            self.d_xk_i[psf.det-1] = convolve(self.source, psf.d_xk, fix_edges=False)
+            self.d_yk_i[psf.det-1] = convolve(self.source, psf.d_yk, fix_edges=False)
 
     def _prepare_source_polarization(self, psf):
         '''Prepare the leakage maps for the given source polarization'''
@@ -525,7 +515,6 @@ class Source:
 
         # Normalize the probabilities by computing the integral over all position.
         # The normalization condition is that the sum over the image is equal to 1
-
         normalization = (
             self.roi_weighted_mean(self.d_i_i[psf.det-1]) +
 
@@ -541,7 +530,7 @@ class Source:
             )
         ) # NB it's guaranteed that all sources have the same size
 
-        return (
+        out = (
             self.evt_d_i_i[key] +
 
             sigma_plus * self.evt_d_zs_i[key] +
@@ -565,6 +554,8 @@ class Source:
                 k_cross * self.evt_d_yk_i[key]
             )
         ) / normalization
+    
+        return out
     
 
     def divide_by_mu(self, q, u, spectrum):
