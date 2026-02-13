@@ -71,7 +71,7 @@ class FitSettings:
 
         # Add the particle spectrum
         if spectral_weights:
-            if self.sources[0].use_nn:
+            if self.datas[0].use_nn_energies:
                 spectrum = get_nn_bkg_spectrum()
             else:
                 spectrum = lambda e: (e**-1.87)
@@ -142,6 +142,17 @@ class FitSettings:
     def check_name(self, name):
         if name in self.names:
             raise Exception(f"The name {name} is not unique. Please pass another name.")
+
+    def check_source_dim(self, source):
+        if len(self.sources) == 0: return
+        standard_text = "LeakageLib requires each source to have the same dimensions and pixel size."\
+        " If you are creating a source using your own Source object, add that source to the FitSettings" \
+        " first. Make all `add_background` or `add_point_source` calls afterwards. They should use the" \
+        " same image properties as the source you created."
+        if not self.sources[0].source.shape == source.source.shape:
+            raise Exception(f"This source does not have the same image size as previous source(s). {standard_text}")
+        if not self.sources[0].pixel_size == source.pixel_size:
+            raise Exception(f"This source does not have the same pixel size as previous source(s). {standard_text}")
 
 
     def add_point_source(self, name="src", det=(1,2,3,), obs_ids=None):
@@ -236,6 +247,7 @@ class FitSettings:
         Default is (1,2,3)
         """
         self.check_name(name)
+        self.check_source_dim(source)
         self.sources.append(source)
         self.names.append(name)
         self.detectors.append(det)
@@ -346,7 +358,7 @@ class FitSettings:
         Set a polarization sweep model for the source.
         # Arguments
         * source_name: the name of the source to apply the sweep model to
-        * sweep: a function which takes in event time and returns (q, u) for a polarization model (normalized Stokes coefficient). A fit will then be run to determine normalization constants.
+        * sweep: a function which takes in event time and returns (q, u) for a polarization model (normalized Stokes coefficient). A fit will then be run to determine a global PA offset and PD.
         """
         if not source_name in self.names:
             raise Exception(f"The source {source_name} is not in the list of sources.")
@@ -365,7 +377,7 @@ class FitSettings:
         Set a polarization model for the source with fittable parameters. Set the fittable parameters by calling FitSettings.add_param.
         # Arguments
         * source_name: the name of the source to apply the polarization model to
-        * model_fn: a function that returns (q, u) from a polarization model (normalized Stokes coefficient). It takes three arguments: event time, a FitData object, and an array of parameters. You should get the value of a parameter by calling `FitData.param_to_value(param_array, parameter_name)`. This will return the value of the parameter named "parameter_name".
+        * model_fn: a function that returns (q, u) from a polarization model (normalized Stokes coefficient). It takes three arguments: event time, a FitData object, and an array of parameters. You should get the value of a parameter by calling `FitData.param_to_value(param_array, parameter_name)`. This will return the value of the parameter named "parameter_name". To add a parameter other than the default q, u, use `FitSettings.add_param`
         """
         if not source_name in self.names:
             raise Exception(f"The source {source_name} is not in the list of sources.")
