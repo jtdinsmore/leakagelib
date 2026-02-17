@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "LeakageLib"
+version = "2.0.1"
+description = "Tools to fit for polarizations and predict polarization leakage for the IXPE satellite"
+readme = "readme.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "Jack T. Dinsmore", email = "jtd@stanford.edu" }
+]
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.13.1",
+    "astropy>=6.1.3",
+    "ixpeobssim",
+    "tensorflow",
+    "matplotlib"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
