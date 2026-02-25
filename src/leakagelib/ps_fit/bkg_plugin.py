@@ -42,7 +42,12 @@ def add_individual_background(settings, source):
             settings.set_initial_qu(name, (0,0))
             name = f"{obs_id}pbkg{det}"
             settings.add_particle_source(copy.deepcopy(source), name, det=(det,))
-            settings.set_initial_flux(name, 1)
+            if det == 1:
+                settings.set_initial_flux(name, 0.9)
+            if det == 2:
+                settings.set_initial_flux(name, 1)
+            if det == 3:
+                settings.set_initial_flux(name, 1.1)
             settings.set_initial_qu(name, (0,0))
 
 def add_merged_backgrounds(settings, source, initial_values=None):

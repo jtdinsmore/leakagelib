@@ -13,4 +13,3 @@ __all__ = ["Source", "PSF", "IXPEData", "IXPE_PIXEL_SIZE", "EnergyDependence", "
 
 from importlib.metadata import version as get_version
 __version__ = get_version("leakagelib")
-

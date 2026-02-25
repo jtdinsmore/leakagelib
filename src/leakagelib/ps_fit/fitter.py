@@ -512,10 +512,11 @@ class Fitter:
             #     import matplotlib.pyplot as plt
             #     import time
             #     line = np.linspace(-250, 250, 101)
+            #     mask = data.evt_bg_chars < 0.2
 
             #     fig, (ax1, ax2) = plt.subplots(ncols=2, sharex=True, sharey=True)
-            #     counts = np.histogram2d(data.evt_xs, data.evt_ys, (line, line))[0].astype(float)
-            #     pred = np.histogram2d(data.evt_xs, data.evt_ys, (line, line), weights=evt_probs)[0].astype(float)/counts
+            #     counts = np.histogram2d(data.evt_xs[mask], data.evt_ys[mask], (line, line))[0].astype(float)
+            #     pred = np.histogram2d(data.evt_xs[mask], data.evt_ys[mask], (line, line), weights=evt_probs[mask])[0].astype(float)/counts
             #     image = np.log(1+counts)
             #     ax1.pcolormesh(line, line, np.transpose(image), vmin=0)
             #     ax1.set_title("Data")
