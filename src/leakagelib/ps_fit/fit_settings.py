@@ -1,9 +1,11 @@
 import numpy as np
 from scipy.interpolate import interp1d
 import warnings
+from astropy.io import fits
 from . import spectral_weights
 from ..source import Source
 from ..settings import LEAKAGE_DATA_DIRECTORY
+from ..ixpe_data import IXPE_PIXEL_SIZE
 
 USE_SPECTRAL_MUS = False # Set to True to account for the fact that the finite detector energy
 # resolution means that the mu corresponding to the measured energy is different from the true mu,
@@ -106,7 +108,7 @@ class FitSettings:
 
         for source in self.sources:
             source.store_info = store_info
-            source._apply_roi(self.roi)
+            source._apply_roi(self._vignette())
             source.invalidate_psf()
             source.invalidate_source_polarization()
             source.invalidate_event_data()
@@ -156,7 +158,34 @@ class FitSettings:
             raise Exception(f"This source does not have the same image size as previous source(s). {standard_text}")
         if not self.sources[0].pixel_size == source.pixel_size:
             raise Exception(f"This source does not have the same pixel size as previous source(s). {standard_text}")
+        
+    def _vignette(self):
+        """
+        Get the vignetted ROI image for each detector
 
+        Returns
+        -------
+            list of array-like
+        A list of vignetted ROIs, one per detector.
+        """
+        output = {}
+        xs, ys = np.meshgrid(self.sources[0].pixel_centers, self.sources[0].pixel_centers)
+        for data in self.datas:
+            key = (data.obs_id, data.det)
+            if data.expmap is None:
+                warnings.warn(f"Data set {data.obs_id} DU {data.det} had no exposure map loaded. Please load an exposure map if you are fitting to events in the vignetted portion")
+                output[key] = np.copy(self.roi)
+            else:
+                with fits.open(data.filename) as hdul:
+                    colx = hdul[1].columns["X"]
+                    coly = hdul[1].columns["Y"]
+                stretch = np.cos(coly.coord_ref_value * np.pi / 180)
+                ras = ((xs - data.offsets[0]) / IXPE_PIXEL_SIZE - colx.coord_ref_point) / stretch * colx.coord_inc + colx.coord_ref_value
+                decs = ((ys - data.offsets[1]) / IXPE_PIXEL_SIZE - coly.coord_ref_point) * coly.coord_inc + coly.coord_ref_value
+                
+                exposures = data.expmap((ras, decs))
+                output[key] = self.roi * exposures
+        return output
 
     def add_point_source(self, name="src", det=(1,2,3,), obs_ids=None):
         """

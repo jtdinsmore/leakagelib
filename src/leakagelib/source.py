@@ -311,7 +311,7 @@ class Source:
         self.psr_coord = None
         self.store_info = store_info
         self.use_nn = use_nn
-        self.fit_roi = None
+        self.fit_rois = None
 
         if self.source.shape != (source_size, source_size):
             raise Exception("Your source image must have shape (source_size, source_size)")
@@ -518,11 +518,11 @@ class Source:
         self.evt_d_xk_i[key] = RegularGridInterpolator(lines, self.d_xk_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
         self.evt_d_yk_i[key] = RegularGridInterpolator(lines, self.d_yk_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
 
-    def _apply_roi(self, roi):
-        self.fit_roi = np.copy(roi)
+    def _apply_roi(self, rois):
+        self.fit_rois = rois
 
-    def _roi_weighted_mean(self, array):
-        return np.sum(array * self.fit_roi) / np.sum(self.fit_roi)
+    def _roi_weighted_mean(self, array, key):
+        return np.sum(array * self.fit_rois[key]) / np.sum(self.fit_rois[key])
 
     def compute_leakage(self, psf, spectrum, energy_dependence=None, normalize=False):
         """
@@ -641,19 +641,19 @@ class Source:
         k_cross = -k_minus / 4
 
         # Normalize the probabilities by computing the integral over all position.
-        # The normalization condition is that the sum over the image is equal to 1
+        # The normalization condition is that the mean over the image is equal to 1
         normalization = (
-            self._roi_weighted_mean(self.d_i_i[psf.det-1]) +
+            self._roi_weighted_mean(self.d_i_i[psf.det-1], key) +
 
-            sigma_plus * self._roi_weighted_mean(self.d_zs_i[psf.det-1]) +
-            k_plus * self._roi_weighted_mean(self.d_zk_i[psf.det-1]) +
+            sigma_plus * self._roi_weighted_mean(self.d_zs_i[psf.det-1], key) +
+            k_plus * self._roi_weighted_mean(self.d_zk_i[psf.det-1], key) +
 
             mus/2 * (
-                sigma_minus * self._roi_weighted_mean(self.d_qs_q[psf.det-1]) +
-                k_minus * self._roi_weighted_mean(self.d_qk_q[psf.det-1]) +
+                sigma_minus * self._roi_weighted_mean(self.d_qs_q[psf.det-1], key) +
+                k_minus * self._roi_weighted_mean(self.d_qk_q[psf.det-1], key) +
 
-                sigma_minus * self._roi_weighted_mean(self.d_us_u[psf.det-1]) +
-                k_minus * self._roi_weighted_mean(self.d_uk_u[psf.det-1])
+                sigma_minus * self._roi_weighted_mean(self.d_us_u[psf.det-1], key) +
+                k_minus * self._roi_weighted_mean(self.d_uk_u[psf.det-1], key)
             )
         ) # NB it's guaranteed that all sources have the same size
 

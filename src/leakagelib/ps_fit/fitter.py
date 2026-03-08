@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 import copy
 from .fit_data import FitData
@@ -161,6 +162,63 @@ class Fitter:
             cov = np.zeros_like(hessian)
 
         return cov
+    
+    def plot(self, filename, params=None, n_bins=101):
+        """
+        Plot the image predicted by the fitter vs the data
+
+        Parameters
+        ----------
+        filename : string
+            Name of the file to save the image to
+        params : array-like, optional
+            Parameter array to plot. Default: the starting values
+        n_bins : int, optional
+            Number of spatial bins to use
+        """
+        if params is None:
+            params = self._get_start_params()[0]
+
+        data = self.datas[0]
+        psf = self.psfs[0]
+        max_r = np.max(np.sqrt(data.evt_xs**2 + data.evt_ys**2))
+
+        evt_probs = np.zeros_like(data.evt_xs)
+        for source_index, source in enumerate(self.fit_settings.sources):
+            source_name = self.fit_settings.names[source_index]
+            if data.det not in self.fit_settings.detectors[source_index]:
+                continue
+            if self.fit_settings.obs_ids[source_index] is not None and (data.obs_id not in self.fit_settings.obs_ids[source_index]):
+                continue
+
+            # Get the parameters and use the prior
+            f = self.fit_data.param_to_value(params, "f", source_name)
+            source.polarize_net((0, 0))
+            evt_probs += source.get_event_p_r_given_phi(psf, data, overwrite_mus=data.evt_mus) * f
+            
+        mask = data.evt_bg_chars < 0.2
+
+        fig, (ax1, ax2) = plt.subplots(ncols=2, sharex=True, sharey=True)
+        line = np.linspace(-max_r, max_r, n_bins)
+        
+        counts = np.histogram2d(data.evt_xs[mask], data.evt_ys[mask], (line, line))[0].astype(float)
+        pred = np.histogram2d(data.evt_xs[mask], data.evt_ys[mask], (line, line), weights=evt_probs[mask])[0].astype(float)/counts
+        counts /= np.nanmax(counts) * 0.005
+        image = np.log(1+counts)
+        ax1.pcolormesh(line, line, np.transpose(image), vmin=0)
+        ax1.set_title(f"Data (DU {data.det})")
+        
+        pred[~np.isfinite(pred)] = 0
+        pred /= np.nanmax(pred) * 0.005
+        image = np.log(1+pred)
+        ax2.pcolormesh(line, line, np.transpose(image), vmin=0)
+        ax2.set_title("Prediction")
+
+        for ax in fig.axes:
+            ax.set_aspect("equal")
+            ax.set_xlim(line[0], line[-1])
+            ax.set_ylim(line[0], line[-1])
+        fig.savefig(filename)
 
     def fit(self, method="nelder-mead"):
         """
@@ -507,31 +565,6 @@ class Fitter:
                 log_prob = np.concatenate([log_prob, np.log(evt_probs / flux_norms)])
             else:
                 log_prob += np.sum(np.log(evt_probs / flux_norms))
-
-            # if data.det == 1:
-            #     import matplotlib.pyplot as plt
-            #     import time
-            #     line = np.linspace(-250, 250, 101)
-            #     mask = data.evt_bg_chars < 0.2
-
-            #     fig, (ax1, ax2) = plt.subplots(ncols=2, sharex=True, sharey=True)
-            #     counts = np.histogram2d(data.evt_xs[mask], data.evt_ys[mask], (line, line))[0].astype(float)
-            #     pred = np.histogram2d(data.evt_xs[mask], data.evt_ys[mask], (line, line), weights=evt_probs[mask])[0].astype(float)/counts
-            #     image = np.log(1+counts)
-            #     ax1.pcolormesh(line, line, np.transpose(image), vmin=0)
-            #     ax1.set_title("Data")
-            #     image = np.log(1+pred)
-            #     image[~np.isfinite(image)] = 0
-            #     ax2.pcolormesh(line, line, np.transpose(image), vmin=0)
-            #     ax2.set_title("Prediction")
-            #     for ax in fig.axes:
-            #         ax.set_aspect("equal")
-            #         ax.set_xlim(line[0], line[-1])
-            #         ax.set_ylim(line[0], line[-1])
-            #     fig.suptitle(", ".join([f"{p:.4f}" for p in params]))
-            #     fig.savefig("dbg.png")
-            #     plt.close("all")
-            #     time.sleep(0.1)
 
         if not return_array and not np.isfinite(log_prob):
             problem = None

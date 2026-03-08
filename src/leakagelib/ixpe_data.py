@@ -261,6 +261,7 @@ class IXPEData:
         with fits.open(file_names[1]) as hdu:
             self.rotation = float(hdu[0].header['PADYN'])
 
+        self.expmap = None
         self.bin = bin
         self.pixels_per_row = len(source.source)
         self.pixel_size = source.pixel_size#arcsec
@@ -545,7 +546,7 @@ class IXPEData:
             upper_left, lower_right = wcs.all_pix2world([(0, 0), (image.shape[1]-1, image.shape[0]-1)], 0)
             ras = np.linspace(upper_left[0], lower_right[0], image.shape[0])
             decs = np.linspace(upper_left[1], lower_right[1], image.shape[1])
-            expmap = RegularGridInterpolator((ras, decs), np.transpose(image), bounds_error=False, fill_value=0)
+            self.expmap = RegularGridInterpolator((ras, decs), np.transpose(image), bounds_error=False, fill_value=0)
 
         with fits.open(self.filename) as hdul:
             colx = hdul[1].columns["X"]
@@ -554,4 +555,4 @@ class IXPEData:
         ras = (self.evt_xs / IXPE_PIXEL_SIZE - colx.coord_ref_point) / stretch * colx.coord_inc + colx.coord_ref_value
         decs = (self.evt_ys / IXPE_PIXEL_SIZE - coly.coord_ref_point) * coly.coord_inc + coly.coord_ref_value
 
-        self.evt_exposures = expmap((ras-offset[0]/3600/stretch, decs-offset[1]/3600))
+        self.evt_exposures = self.expmap((ras-offset[0]/3600/stretch, decs-offset[1]/3600))
