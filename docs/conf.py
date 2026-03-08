@@ -40,4 +40,4 @@ autodoc_default_options = {
 
 html_theme = 'sphinx_book_theme'
 html_static_path = ['_static']
-html_baseurl = "https://jack-dinsmore.github.io/leakagelib/"
+html_baseurl = "https://jack-dinsmore.github.io/leakagelib"

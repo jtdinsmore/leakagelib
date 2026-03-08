@@ -1,6 +1,5 @@
 import numpy as np
 from scipy.interpolate import interp1d
-from ixpeobssim.irf import load_arf
 from .settings import *
 from . import modulation
 
@@ -32,6 +31,7 @@ class Spectrum:
         Load the spectrum assuming power law-distributed 2-8 keV counts. Unweighted. Useful for demonstration purposes only. In practice, use a more accurate simulation for an IXPE observation.
         '''
 
+        from ixpeobssim.irf import load_arf
         arf = load_arf()
         energies = np.arange(2, 8, 0.04)
         counts = arf(energies) * energies**(-pl_index)

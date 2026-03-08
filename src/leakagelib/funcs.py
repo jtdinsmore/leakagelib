@@ -91,63 +91,6 @@ KERNEL_YK = np.array([
     [0, 0, 0, 0, 0, 0, 0, 0, 0],
 ]) / 4**4 / 3
 
-def override_matplotlib_defaults():
-    '''
-    Load Jack's default matplotlib parameters to make prettier images
-    '''
-    import matplotlib as mpl
-    from cycler import cycler
-
-    mpl.rcParams["font.size"] = 10
-    mpl.rcParams["axes.titlesize"] = 18
-    mpl.rcParams["axes.labelsize"] = 18
-    mpl.rcParams["axes.formatter.limits"] = (-4, 5)
-    mpl.rcParams["axes.formatter.use_mathtext"] = True
-    mpl.rcParams["axes.formatter.useoffset"] = False
-    mpl.rcParams["axes.prop_cycle"] = cycler('color', ["cadetblue", "darkorange", "forestgreen", "firebrick", "dodgerblue", "goldenrod", "slateblue", "darkmagenta", "saddlebrown"])
-    mpl.rcParams["figure.titlesize"] = 24
-    mpl.rcParams["figure.subplot.hspace"] = 0.12
-    mpl.rcParams["figure.subplot.wspace"] = 0.1
-    mpl.rcParams["path.simplify"] = True
-    mpl.rcParams["image.cmap"] = "inferno"
-
-    mpl.rcParams["hist.bins"] = 20
-    mpl.rcParams["legend.fontsize"] = 17
-    mpl.rcParams["xtick.labelsize"] = 15
-    mpl.rcParams["ytick.labelsize"] = 15
-    mpl.rcParams["legend.frameon"] = False
-    mpl.rcParams["font.family"] = "Courier"
-    mpl.rcParams["mathtext.fontset"] = "custom"
-    mpl.rcParams["mathtext.rm"] = "Courier"
-    mpl.rcParams["mathtext.it"] = "Courier:oblique"
-    mpl.rcParams["mathtext.bf"] = "Courier:bold"
-    mpl.rcParams["mathtext.fallback"] = "stixsans"
-    mpl.rcParams["errorbar.capsize"] = 3
-    mpl.rcParams["scatter.edgecolors"] = 'k'
-    mpl.rcParams["lines.markersize"] = 10
-    mpl.rcParams["lines.markeredgecolor"] = 'k'
-    mpl.rcParams["lines.linewidth"] = 3
-    mpl.rcParams["figure.figsize"] = (9,5.56)
-    mpl.rcParams["savefig.bbox"] = "tight"
-
-    mpl.rcParams["xtick.top"] = True
-    mpl.rcParams["xtick.bottom"] = True
-    mpl.rcParams["xtick.major.size"] = 6
-    mpl.rcParams["xtick.minor.size"] = 3.5
-    mpl.rcParams["xtick.major.width"] = 1
-    mpl.rcParams["xtick.minor.width"] = 0.8
-    mpl.rcParams["xtick.direction"] = "in"
-    mpl.rcParams["xtick.minor.visible"] = True
-
-    mpl.rcParams["ytick.left"] = True
-    mpl.rcParams["ytick.right"] = True
-    mpl.rcParams["ytick.major.size"] = 6
-    mpl.rcParams["ytick.minor.size"] = 3.5
-    mpl.rcParams["ytick.major.width"] = 1
-    mpl.rcParams["ytick.minor.width"] = 0.8
-    mpl.rcParams["ytick.direction"] = "in"
-    mpl.rcParams["ytick.minor.visible"] = True
-
 def super_zoom(image, frac, force_odd=False):
     """
     Interpolate zoom when zooming in, integrate zoom when zooming out.

@@ -1,6 +1,5 @@
 import numpy as np
 from scipy.signal import convolve
-from .funcs import override_matplotlib_defaults
 from .settings import *
 from .spectrum import EnergyDependence
 
@@ -82,8 +81,6 @@ def fit_extended(source, psfs, spectrum, is_obs, qs_obs, us_obs, initial_source_
     if report_frequency is not None:
         import matplotlib.pyplot as plt
         from matplotlib import animation, gridspec
-
-        override_matplotlib_defaults()
 
         fig = plt.figure(figsize=(13,12))
 

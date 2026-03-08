@@ -50,6 +50,12 @@ class Region:
         """
         raise Exception("You cannot instantiate the pure base class Region")
     
+    def area(self):
+        """
+        Get the area of the region. Area is only defined for circular, elliptical, and box regions
+        """
+        raise Exception("Area is only defined for circular, elliptical, and box regions")
+    
 class BoxRegion(Region):
     def __init__(self, filename):
         with open(filename) as f:
@@ -74,6 +80,9 @@ class BoxRegion(Region):
         w_alpha = self.get_alpha(x, y, self.w * np.sin(self.angle), -self.w * np.cos(self.angle))
         return (np.abs(l_alpha) < 0.5) & (np.abs(w_alpha) < 0.5)
 
+    def area(self):
+        return self.l * self.w
+    
     
 class PolygonRegion(Region):
     def __init__(self, filename):
@@ -140,7 +149,9 @@ class CircleRegion(Region):
         dist2 = (x - self.x)**2 + (y - self.y)**2
         return dist2 < self.radius2
     
-
+    def area(self):
+        return self.radius2 * np.pi
+    
     
 class EllipseRegion(Region):
     def __init__(self, filename):
@@ -161,3 +172,5 @@ class EllipseRegion(Region):
         d = rot_x**2 / self.a**2 + rot_y**2 / self.b**2
         return d < 1
     
+    def area(self):
+        return self.a * self.b * np.pi
