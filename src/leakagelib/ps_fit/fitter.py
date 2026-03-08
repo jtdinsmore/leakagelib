@@ -163,7 +163,7 @@ class Fitter:
 
         return cov
     
-    def plot(self, filename, params=None, n_bins=101):
+    def plot(self, params=None, n_bins=101):
         """
         Plot the image predicted by the fitter vs the data
 
@@ -218,7 +218,8 @@ class Fitter:
             ax.set_aspect("equal")
             ax.set_xlim(line[0], line[-1])
             ax.set_ylim(line[0], line[-1])
-        fig.savefig(filename)
+
+        return fig
 
     def fit(self, method="nelder-mead"):
         """
