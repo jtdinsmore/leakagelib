@@ -314,7 +314,7 @@ class Source:
         self.fit_rois = None
 
         if self.source.shape != (source_size, source_size):
-            raise Exception("Your source image must have shape (source_size, source_size)")
+            raise Exception(f"Your source image must have shape {source_size, source_size}")
 
         self.pixel_centers = np.arange(len(image), dtype=float) * self.pixel_size # Arcsec
         self.pixel_centers -= np.max(self.pixel_centers) / 2
