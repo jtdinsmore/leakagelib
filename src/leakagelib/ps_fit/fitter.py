@@ -101,7 +101,10 @@ class Fitter:
             ax_row[1].set_title(f"{name} w/ PSF")
 
         # Show ROI
-        axs[-1,0].pcolormesh(source.pixel_centers, source.pixel_centers, np.flip(self.fit_settings.roi, axis=1), vmin=0, cmap="viridis")
+        roi = np.zeros_like(image)
+        for image in self.fit_settings._vignette().values():
+            roi += image
+        axs[-1,0].pcolormesh(source.pixel_centers, source.pixel_centers, np.flip(roi, axis=1), vmin=0, cmap="viridis")
         axs[-1,0].set_aspect("equal")
         axs[-1,0].set_title("ROI")
 

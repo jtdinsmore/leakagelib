@@ -147,7 +147,7 @@ def cxo_source(filename, data, offset=None):
     filename : str
         File name of the CXO image. This should have been created with leakagelib_cxo
     data : :class:`leakagelib.IXPEData`
-        IXPE data set to create a source for
+        IXPE data set to create a source for. The offset is taken from this data set
     offset : (float, float)
         Additional offset in units of arcseconds
 

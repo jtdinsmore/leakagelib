@@ -166,7 +166,7 @@ class FitSettings:
         Returns
         -------
             list of array-like
-        A list of vignetted ROIs, one per detector.
+        A dictionary of vignetted ROIs, one per data set. The dictionary is indexed by the standard key
         """
         output = {}
         xs, ys = np.meshgrid(self.sources[0].pixel_centers, self.sources[0].pixel_centers)

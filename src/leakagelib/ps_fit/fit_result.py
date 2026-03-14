@@ -32,6 +32,11 @@ class FitResult:
             self.sigmas[fit_data.index_to_param(i)] = np.sqrt(sigma2)
         self.fun = best_like
         self.message = message
+
+        sigma_array = np.array(self.sigmas.values())
+        if np.any(sigma_array) <= 0 or np.any(np.isnan(sigma_array)):
+            self.message = "At least one of the parameters is at the boundary." + self.message
+
         self.source_names = fit_settings.names
         self.fit_data = fit_data
         self.dof = np.sum([len(data.evt_xs) for data in fit_settings.datas]) - fit_data.length()
@@ -81,7 +86,7 @@ class FitResult:
             pd, pa, pd_unc, pa_unc = self.get_pd_pa(source_name)
             if pd is not None:
                 sigma = pd / pd_unc
-                text += f"\tPD ({source_name}): {pd:.4f} +/- {pd_unc:.4f} ({sigma:.1f} sig)\n"
+                text += f"\tPD ({source_name}): {pd:.4f} +/- {pd_unc:.4f}\n"
                 text += f"\tPA ({source_name}): {pa*180/np.pi:.4f} deg +/- {pa_unc*180/np.pi:.4f}\n"
         text += f"Likelihood {self.fun}, dof {self.dof}\n"
         text += self.message
