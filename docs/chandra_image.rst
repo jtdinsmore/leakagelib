@@ -6,7 +6,7 @@ Generating a Chandra image
 1. Download the relevant Chandra data and making ARFs for each data set (preferably with mkwarf). Currently, the code requires ACIS observations.
 2. (Optional) If you want to exposure weight the image, you will also have to merge the observations with merge_obs.
 3. Draw background and source regions for your object
-4. Save these regions in IXPE coordinates. The fastest way to do these is to copy the regions from the Chandra events file to the IXPE events file using DS9 and then save the IXPE region in ciao format with physical coordiates (WARNING: IXPE physical coordinates must be used, not Chandra.)
+4. Save these regions in IXPE coordinates. The fastest way to do this is to copy the regions from the Chandra events file to the IXPE events file using DS9 and then save the IXPE region in ciao format with physical coordiates (WARNING: IXPE physical coordinates must be used, not Chandra.)
 5. Run the leakagelib_cxo script (see below)
 6. Import the image into your LeakageLib fit using the :func:`leakagelib_cxo.cxo_source` function.
 

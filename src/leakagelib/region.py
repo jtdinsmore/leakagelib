@@ -1,5 +1,4 @@
 import numpy as np
-from dinsmore.region import Region
 
 class Region:
     """

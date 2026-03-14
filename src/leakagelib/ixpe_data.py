@@ -4,6 +4,7 @@ from scipy.linalg import pinvh
 from scipy.interpolate import RegularGridInterpolator
 from astropy.io import fits
 from astropy.wcs import WCS
+from ixpeobssim.irf import load_vign
 from .spectrum import Spectrum
 from .region import Region
 from .settings import DATA_DIRECTORIES
@@ -244,6 +245,7 @@ class IXPEData:
             self.evt_pis = events["PI"].astype(int)
             self.evt_times = events["TIME"].astype(np.float64)
             self.evt_exposures = np.ones_like(self.evt_xs)
+            self.evt_vigns = np.ones_like(self.evt_xs)
             if "BG_PROB" in events.columns.names:
                 self.evt_bg_chars = events["BG_PROB"]
             else:
@@ -282,8 +284,15 @@ class IXPEData:
         self.hk_filename = file_names[1]
         self.offsets = np.zeros(2)
 
+        self._apply_vignetting()
         self._extract_spectrum()
         self._bin_data()
+
+    def _apply_vignetting(self):
+        center = 300*IXPE_PIXEL_SIZE
+        off_axis_arcmin = np.sqrt((self.evt_xs - self.offsets[0] - center)**2 + (self.evt_ys - self.offsets[1] - center)**2) / 60
+        vign = load_vign(du_id=self.det)
+        self.evt_vigns = vign(self.evt_energies, off_axis_arcmin)
 
     def weight_nn(self):
         """
@@ -311,6 +320,7 @@ class IXPEData:
         self.evt_ys = self.evt_ys[mask]
         self.evt_qs = self.evt_qs[mask]
         self.evt_us = self.evt_us[mask]
+        self.evt_vigns = self.evt_vigns[mask]
         self.evt_energies = self.evt_energies[mask]
         self.evt_pis = self.evt_pis[mask]
         self.evt_exposures = self.evt_exposures[mask]
