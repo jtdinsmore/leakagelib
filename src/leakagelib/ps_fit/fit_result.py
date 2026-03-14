@@ -33,7 +33,7 @@ class FitResult:
         self.fun = best_like
         self.message = message
 
-        sigma_array = np.array(self.sigmas.values())
+        sigma_array = np.array(list(self.sigmas.values()))
         if np.any(sigma_array) <= 0 or np.any(np.isnan(sigma_array)):
             self.message = "At least one of the parameters is at the boundary." + self.message
 
