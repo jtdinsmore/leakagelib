@@ -1,15 +1,18 @@
 import numpy as np
 from scipy.interpolate import interp1d
-import warnings
+import logging
 from astropy.io import fits
 from . import spectral_weights
 from ..source import Source
 from ..settings import LEAKAGE_DATA_DIRECTORY
 from ..ixpe_data import IXPE_PIXEL_SIZE
+from ixpeobssim.irf import load_vign
 
 USE_SPECTRAL_MUS = False # Set to True to account for the fact that the finite detector energy
 # resolution means that the mu corresponding to the measured energy is different from the true mu,
 # which depends on the true energy. Accounting for this will lower mu on average.
+
+logger = logging.getLogger("leakagelib")
 
 def _get_num_pixels(datas):
     max_radius = 0
@@ -32,6 +35,12 @@ class FitSettings:
         """
         Create a fit settings object for use in fitting the data sets listed in "datas"
         """
+        max_radius = 0
+        for data in datas:
+            center = 300*IXPE_PIXEL_SIZE
+            off_axis_arcmin = np.sqrt((data.evt_xs - data.offsets[0] - center)**2 + (data.evt_ys - data.offsets[1] - center)**2) / 60
+            max_radius = max(max_radius, np.max(off_axis_arcmin))
+
         self.datas = datas
         self.sources = []
         self.names = []
@@ -43,12 +52,14 @@ class FitSettings:
         self.guess_qu = []
         self.guess_f = []
         self.spectral_weights = []
+        self.spectral_vignettes = []
         self.spectral_mus = []
         self.temporal_weights = []
         self.sweeps = []
         self.extra_param_names = []
         self.extra_param_data = []
         self.model_fns = []
+        self.vignette_radial_bins = np.arange(0, max_radius, 0.05) # Radial bins to be used to get the vignetting map
         self.roi = None
         self.fixed_blur = 0
 
@@ -85,7 +96,7 @@ class FitSettings:
 
         # Warn if no particle source added
         if len(particle_source_names) == 0 and bg_weights:
-            warnings.warn("Your data set has background characters assigned, but you did not add a "\
+            logger.warning("Your data set has background characters assigned, but you did not add a "\
                           "particle component. Particles will not be modeled. Was this intentional?")
 
         # Warn if no particle source added
@@ -96,7 +107,7 @@ class FitSettings:
         # Fix a flux
         if np.all([self.fixed_flux[i] is None for i in range(len(self.names))]):
             name = self.names[0]
-            warnings.warn(f"All of your sources had variable flux. The fitter requires"\
+            logger.warning(f"All of your sources had variable flux. The fitter requires"\
             f" one of the fluxes to be fixed. Fixing the flux associated with source {name} to 1.")
             self.fix_flux(name, 1)
         
@@ -106,9 +117,9 @@ class FitSettings:
         if self.fixed_blur is None:
             store_info = False
 
-        for source in self.sources:
+        for i, source in enumerate(self.sources):
             source.store_info = store_info
-            source._apply_roi(self._vignette())
+            source._apply_roi(self._finalize_roi(i))
             source.invalidate_psf()
             source.invalidate_source_polarization()
             source.invalidate_event_data()
@@ -127,14 +138,14 @@ class FitSettings:
         # Print warnings if any of the sources have weird properties
         for (name, source) in zip(self.names, self.sources):
             if np.abs(source.pixel_size - 2.9729) > 1e-4:
-                warnings.warn(f"The source {name} had pixel width not equal to 2.9729. 2.9279 is" \
+                logger.warning(f"The source {name} had pixel width not equal to 2.9729. 2.9279 is" \
                 " the pixel width of the sky calibrated PSF, and analysis will be most accurate if" \
                 " you use that pixel width for your sources too.")
             if not source.has_image:
                 raise Exception(f"All sources must have an image.")
             if common_pixel_size is not None:
                 if source.pixel_size != common_pixel_size or source.source.shape != common_source_dimensions:
-                    warnings.warn(f"Your sources do not all have the same pixel size or dimensions."\
+                    logger.warning(f"Your sources do not all have the same pixel size or dimensions."\
                     " This will incorrectly apply different ROIs to different sources, or"\
                     " maybe just crash. Make your source images all on the same scale to avoid this.")
             common_pixel_size = source.pixel_size
@@ -159,9 +170,14 @@ class FitSettings:
         if not self.sources[0].pixel_size == source.pixel_size:
             raise Exception(f"This source does not have the same pixel size as previous source(s). {standard_text}")
         
-    def _vignette(self):
+    def _finalize_roi(self, source_index):
         """
-        Get the vignetted ROI image for each detector
+        Get the ROI image for each detector, exposure map and vignetting corrected.
+
+        Parameters
+        ----------
+        source_index : int
+            The source index to be vignetted. The source's spectrum is used to weight vignetting. If None, vignetting is not applied
 
         Returns
         -------
@@ -169,22 +185,33 @@ class FitSettings:
         A dictionary of vignetted ROIs, one per data set. The dictionary is indexed by the standard key
         """
         output = {}
-        xs, ys = np.meshgrid(self.sources[0].pixel_centers, self.sources[0].pixel_centers)
         for data in self.datas:
+            image = np.copy(self.roi)
             key = (data.obs_id, data.det)
+
+            # Load the coords of the roi map
+            xs, ys = np.meshgrid(self.sources[0].pixel_centers, self.sources[0].pixel_centers)
+            with fits.open(data.filename) as hdul:
+                colx = hdul[1].columns["X"]
+                coly = hdul[1].columns["Y"]
+            stretch = np.cos(coly.coord_ref_value * np.pi / 180)
+            ras = ((xs - data.offsets[0]) / IXPE_PIXEL_SIZE - colx.coord_ref_point) / stretch * colx.coord_inc + colx.coord_ref_value
+            decs = ((ys - data.offsets[1]) / IXPE_PIXEL_SIZE - coly.coord_ref_point) * coly.coord_inc + coly.coord_ref_value
+            center = 300*IXPE_PIXEL_SIZE
+            off_axis_arcmin = np.sqrt((xs - data.offsets[0] - center)**2 + (ys - data.offsets[1] - center)**2) / 60
+
+            # Apply exposure map
             if data.expmap is None:
-                warnings.warn(f"Data set {data.obs_id} DU {data.det} had no exposure map loaded. Please load an exposure map if you are fitting to events in the vignetted portion")
+                logger.warning(f"Data set {data.obs_id} DU {data.det} had no exposure map loaded. Please load an exposure map if you are fitting to events in the vignetted portion")
                 output[key] = np.copy(self.roi)
             else:
-                with fits.open(data.filename) as hdul:
-                    colx = hdul[1].columns["X"]
-                    coly = hdul[1].columns["Y"]
-                stretch = np.cos(coly.coord_ref_value * np.pi / 180)
-                ras = ((xs - data.offsets[0]) / IXPE_PIXEL_SIZE - colx.coord_ref_point) / stretch * colx.coord_inc + colx.coord_ref_value
-                decs = ((ys - data.offsets[1]) / IXPE_PIXEL_SIZE - coly.coord_ref_point) * coly.coord_inc + coly.coord_ref_value
-                
-                exposures = data.expmap((ras, decs))
-                output[key] = self.roi * exposures
+                image *= data.expmap((ras, decs))
+
+            # Apply vignetting
+            if source_index is not None and self.spectral_vignettes[source_index] is not None:
+                image *= np.interp(off_axis_arcmin, self.vignette_radial_bins, self.spectral_vignettes[source_index])
+
+            output[key] = image
         return output
 
     def add_point_source(self, name="src", det=(1,2,3,), obs_ids=None):
@@ -314,6 +341,7 @@ class FitSettings:
         self.particles.append(False)
         self.spectral_weights.append(None)
         self.spectral_mus.append(None)
+        self.spectral_vignettes.append(None)
         self.temporal_weights.append(None)
         self.model_fns.append(None)
         self.sweeps.append(None)
@@ -363,17 +391,25 @@ class FitSettings:
                 mus.append(data.evt_mus)
 
         # Compute normalization
-        energies = np.linspace(min_energy, max_energy, 1000)
+        energies = np.linspace(min_energy, max_energy, 100)
         if duty_cycle is None:
             duty_cycle = lambda e: np.ones_like(e)
-        integral = np.sum(convolved_spec(energies) * duty_cycle(energies))
+        spectrum_array = convolved_spec(energies) * duty_cycle(energies)
+        integral = np.sum(spectrum_array)
         integral_constant = np.sum(duty_cycle(energies)) # Settings weights equal to one would give this value
 
         # Normalize the spectrum so that the spectrum normalization is equal to that of weights=1
         multiplier = integral_constant / integral        
         for i in range(len(weights)):
             weights[i] *= multiplier
-        
+
+        # Get vignetting function
+        vign_function = load_vign()
+        vignettes = []
+        for radius in self.vignette_radial_bins:
+            vignettes.append(np.sum(vign_function(energies, radius) * spectrum_array / integral))
+
+        self.spectral_vignettes[index] = vignettes
         self.spectral_weights[index] = weights
         self.spectral_mus[index] = mus
         

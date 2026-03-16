@@ -1,5 +1,7 @@
-import argparse, warnings, os
+import argparse, logging, os
 from .cxo_utils import make_merged_image
+
+logger = logging.getLogger("leakagelib")
 
 def check_args(args):
     if len(args.cxo_evt) != len(args.cxo_arf):
@@ -14,7 +16,7 @@ def check_args(args):
         if not os.path.exists(args.expmap):
             raise Exception(f"{args.expmap} does not exist")
     else:
-        warnings.warn("Exposure map corrections will not be made because you did not pass an exposure map")
+        logger.warning("Exposure map corrections will not be made because you did not pass an exposure map")
         
     if not os.path.exists(args.ixpe_arf):
         raise Exception(f"{args.ixpe_arf} does not exist")
@@ -24,18 +26,18 @@ def check_args(args):
     if args.elow >= args.ehigh:
         raise Exception("Your low energy must be smaller than your high energy")
     if  args.ehigh > 10 or args.elow < 1:
-        warnings.warn("Your energies should be in keV. Please check to make sure they are correct.")
+        logger.warning("Your energies should be in keV. Please check to make sure they are correct.")
 
     if args.reg_src is not None:
         if not os.path.exists(args.reg_src):
             raise Exception(f"{args.reg_src} does not exist")
     else:
-        warnings.warn("You did not provide a source region. The Chandra image will display the entire field")
+        logger.warning("You did not provide a source region. The Chandra image will display the entire field")
     if args.reg_bkg is not None:
         if not os.path.exists(args.reg_src):
             raise Exception(f"{args.reg_src} does not exist")
     else:
-        warnings.warn("You did not provide a background region. The Chandra image will not be background subtracted")
+        logger.warning("You did not provide a background region. The Chandra image will not be background subtracted")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

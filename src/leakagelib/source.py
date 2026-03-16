@@ -1,4 +1,5 @@
 import numpy as np
+import logging
 from scipy.interpolate import RegularGridInterpolator
 from astropy.io import fits
 from scipy.signal import convolve as scipy_convolve
@@ -6,6 +7,8 @@ from .spectrum import EnergyDependence
 from .funcs import integrate_zoom
 
 WARN = True
+
+logger = logging.getLogger("leakagelib")
 
 def _convolve(src, kernel, fix_edges=True):
     """
@@ -154,7 +157,7 @@ def _process_file(file_name, num_pixels, target_pixel_size, source_pixel_size, h
             middle - num_pixels // 2:middle + num_pixels // 2 + add
         ]
     elif len(image) < num_pixels:
-        print("WARNING: zero padding the source image")
+        logger.warning("Zero padding the source image")
         if len(image.shape) == 2:
             image = _pad_image(image, num_pixels)
         elif len(image.shape) == 3:
@@ -300,9 +303,9 @@ class Source:
 
     def __init__(self, image, use_nn, source_size, pixel_size, store_info=False, is_point_source=False, is_uniform=False):
         if len(image.shape) != 2 or image.shape[0] != image.shape[1]:
-            print("Source image must be two dimensional and square")
+            raise Exception("Source image must be two dimensional and square")
         if pixel_size > 5:
-            print(f"Leakage predictions generally perform poorly for pixel sizes larger than 5 arcsec ({pixel_size} was provided). Predictions may be more reliable if smaller bins are used and rebinned later.")
+            logger.warning(f"Leakage predictions generally perform poorly for pixel sizes larger than 5 arcsec ({pixel_size} was provided). Predictions may be more reliable if smaller bins are used and rebinned later.")
         # Spreads contain the convolution with a psf
         self.source = image
         self.source_size = source_size
@@ -551,7 +554,7 @@ class Source:
         params = energy_dependence.get_params(spectrum)
 
         if WARN and params["sigma_minus"] < 0:
-            print("WARNING: sigma perp should not be bigger than sigma parallel squared.")
+            logger.warning("Sigma perp should not be bigger than sigma parallel squared.")
 
         if not self.store_info or self.d_i_i[psf.det-1] is None:
             self._prepare_psf(psf)
