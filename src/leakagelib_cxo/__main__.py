@@ -34,8 +34,8 @@ def check_args(args):
     else:
         logger.warning("You did not provide a source region. The Chandra image will display the entire field")
     if args.reg_bkg is not None:
-        if not os.path.exists(args.reg_src):
-            raise Exception(f"{args.reg_src} does not exist")
+        if not os.path.exists(args.reg_bkg):
+            raise Exception(f"{args.reg_bkg} does not exist")
     else:
         logger.warning("You did not provide a background region. The Chandra image will not be background subtracted")
 

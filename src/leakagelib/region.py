@@ -53,7 +53,7 @@ class Region:
         """
         Get the area of the region. Area is only defined for circular, elliptical, and box regions
         """
-        raise Exception("Area is only defined for circular, elliptical, and box regions")
+        raise Exception("You cannot instantiate the pure base class Region")
     
 class BoxRegion(Region):
     def __init__(self, filename):
@@ -131,7 +131,13 @@ class PolygonRegion(Region):
                 output[i] = self.check_inside_single(xi, yi)
             return output
 
-
+    def area(self):
+        area = 0
+        for i in range(len(self.points)):
+            base = self.points[i][0] - self.points[i-1][0]
+            height = (self.points[i][1] + self.points[i-1][1]) / 2
+            area += base * height
+        return np.abs(area)
     
 class CircleRegion(Region):
     def __init__(self, filename):
