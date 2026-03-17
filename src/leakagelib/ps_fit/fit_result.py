@@ -35,7 +35,7 @@ class FitResult:
 
         sigma_array = np.array(list(self.sigmas.values()))
         if np.any(sigma_array) <= 0 or np.any(np.isnan(sigma_array)):
-            self.message = "At least one of the parameters is at the boundary." + self.message
+            self.message = "At least one of the parameters is at the boundary. " + self.message
 
         self.source_names = fit_settings.names
         self.fit_data = fit_data

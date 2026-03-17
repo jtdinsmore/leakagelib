@@ -1,5 +1,5 @@
 import numpy as np
-import os
+import os, logging
 from scipy.linalg import pinvh
 from scipy.interpolate import RegularGridInterpolator
 from astropy.io import fits
@@ -11,6 +11,8 @@ from .settings import DATA_DIRECTORIES
 from .modulation import *
 
 IXPE_PIXEL_SIZE = 2.6 # arcsec
+
+logger = logging.getLogger("leakagelib")
 
 class IXPEData:
     """
@@ -87,7 +89,7 @@ class IXPEData:
             
         # Could not find the file. Print out diagnostic information
         for (prepath, reason) in zip(DATA_DIRECTORIES, reasons):
-            print(f"Checking {prepath}: {reason}")
+            logger.info(f"Checking {prepath}: {reason}")
         raise Exception(f"Could not find any observations with ID {obs_id}")
     
 
@@ -175,10 +177,10 @@ class IXPEData:
             else: continue
             detectors[i] = IXPEData(source, (f"{event_directory}/{f}", hks[i]), energy_cut, weight_image=weight_image, bin=bin)
 
-        print("Successfully loaded files")
+        logger.info("Successfully loaded files")
         for data in detectors:
             if data is None: continue
-            print(f"\t{data.filename}")
+            logger.info(f"\t{data.filename}")
 
         return (detectors, "")
     
@@ -359,7 +361,7 @@ class IXPEData:
             mask = ~mask
 
         if np.sum(mask) == 0:
-            print("WARNING: Cut region to size zero")
+            logger.warning("Cut region to size zero")
 
         self.retain(mask)
         return region

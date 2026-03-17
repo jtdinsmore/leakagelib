@@ -1,11 +1,13 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
-import copy
+import copy, logging
 from .fit_data import FitData
 from .fit_result import FitResult, get_hess
 from .pcube import get_pcube
 from ..psf import PSF
+
+logger = logging.getLogger("leakagelib")
 
 class Fitter:
     """
@@ -102,7 +104,7 @@ class Fitter:
 
         # Show ROI
         roi = np.zeros_like(image)
-        for image in self.fit_settings._vignette().values():
+        for image in self.fit_settings._finalize_roi(None).values():
             roi += image
         axs[-1,0].pcolormesh(source.pixel_centers, source.pixel_centers, np.flip(roi, axis=1), vmin=0, cmap="viridis")
         axs[-1,0].set_aspect("equal")
@@ -161,7 +163,7 @@ class Fitter:
         try:
             cov = np.linalg.pinv(-hessian)
         except:
-            print("Hessian inversion did not converge")
+            logger.warning("Hessian inversion did not converge")
             cov = np.zeros_like(hessian)
 
         return cov
