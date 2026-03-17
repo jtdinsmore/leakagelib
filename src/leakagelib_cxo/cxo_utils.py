@@ -51,8 +51,8 @@ class Expmap:
             image = hdul[0].data
             wcs = WCS(hdul[0].header)
             upper_left, lower_right = wcs.all_pix2world([(0, 0), (image.shape[1]-1, image.shape[0]-1)], 0)
-            ras = np.linspace(upper_left[0], lower_right[0], image.shape[0])
-            decs = np.linspace(upper_left[1], lower_right[1], image.shape[1])
+            ras = np.linspace(upper_left[0], lower_right[0], image.shape[1])
+            decs = np.linspace(upper_left[1], lower_right[1], image.shape[0])
             self.expmap = RegularGridInterpolator((ras, decs), np.transpose(image), bounds_error=False, fill_value=0)
 
     def __call__(self, pos):
@@ -75,11 +75,12 @@ def make_merged_image(args):
         with fits.open(args.cxo_evt[i]) as hdul:
             these_ras, these_decs = sky_to_ra_dec(hdul[1].data["X"], hdul[1].data["Y"], hdul[1].columns["X"], hdul[1].columns["Y"])
             these_energies = np.array(hdul[1].data["ENERGY"]).astype(float) / 1000
-            mask = (these_energies > args.elow) & (these_energies < args.ehigh)
+            mask = (these_energies > float(args.elow)) & (these_energies < float(args.ehigh))
         this_arf = ARF(args.cxo_arf[i])
         these_weights = ixpe_arf(these_energies) / this_arf(these_energies)
         if expmap is not None:
             these_weights /= expmap((these_ras, these_decs))
+        these_weights[~np.isfinite(these_weights)] = 0
 
         evt_ras = np.concatenate([evt_ras, these_ras[mask]])
         evt_decs = np.concatenate([evt_decs, these_decs[mask]])
@@ -136,7 +137,10 @@ def make_merged_image(args):
     header = w.to_header()
     del header["LATPOLE"]
     del header["LONPOLE"]
-    fits.writeto(args.output, image, header, overwrite=args.clobber)
+    try:
+        fits.writeto(args.output, image, header, overwrite=args.clobber)
+    except OSError:
+        raise Exception(f"Could not write to {args.output}. Please pass clobber as a command line argument to overwrite files.")
 
 def cxo_source(filename, data, offset=None):
     """

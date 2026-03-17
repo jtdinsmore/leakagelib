@@ -25,7 +25,7 @@ def check_args(args):
 
     if args.elow >= args.ehigh:
         raise Exception("Your low energy must be smaller than your high energy")
-    if  args.ehigh > 10 or args.elow < 1:
+    if  float(args.ehigh) > 10 or float(args.elow) < 1:
         logger.warning("Your energies should be in keV. Please check to make sure they are correct.")
 
     if args.reg_src is not None:
