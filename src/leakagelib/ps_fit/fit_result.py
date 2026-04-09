@@ -120,6 +120,19 @@ class FitResult:
         return str(self)
     
     def sample(self, n_samples):
+        """
+        Generate samples from this fit
+        
+        Parameters
+        ----------
+        n_samples : int
+            Number of samples to generate
+        
+        Returns
+        -------
+            array
+        Array of shape (P, n_samples) where P is the dimensionality of the fit. The samples are stored in the same order as the fit_result.parameter_names array.
+        """
         if self.evals is None or np.any(self.evals < 0):
             raise Exception("Cannot generate samples from a non-positive definite covariance matrix")
         samples = np.random.randn(n_samples, len(self.evals)) * np.sqrt(self.evals)
