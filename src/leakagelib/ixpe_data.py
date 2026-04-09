@@ -122,8 +122,8 @@ class IXPEData:
 
         Returns
         -------
-        List[IXPEData]
-            A list of `IXPEData` objects for all three detectors.
+        (List[IXPEData], string)
+            Returns a tuple with two items: a list of `IXPEData` objects for all three detectors, and a string. If there was a problem loading the files, then the first entry is None and the string contains the error message. Otherwise the string is empty.
         '''
 
         if event_dir is None:

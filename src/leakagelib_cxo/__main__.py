@@ -23,7 +23,7 @@ def check_args(args):
     if not os.path.exists(args.ixpe_evt):
         raise Exception(f"{args.ixpe_evt} does not exist")
 
-    if args.elow >= args.ehigh:
+    if float(args.elow) >= float(args.ehigh):
         raise Exception("Your low energy must be smaller than your high energy")
     if  float(args.ehigh) > 10 or float(args.elow) < 1:
         logger.warning("Your energies should be in keV. Please check to make sure they are correct.")

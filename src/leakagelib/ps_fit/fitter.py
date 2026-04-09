@@ -472,7 +472,7 @@ class Fitter:
         Arguments
         ---------
         params : array_like
-            List of parameters. If you are calling this function manually, you should order the parameters in the same order as the :attr:`FitResults.parameter_names` attribute of the fit result.
+            List of parameters. If you are calling this function manually, you should order the parameters in the same order as the :attr:`FitResult.parameter_names` attribute of the fit result.
 
         prior : bool
             set to True to include the priors, which are all finite uniform.
@@ -540,14 +540,15 @@ class Fitter:
                     q, u = model_fn(data.evt_times, self.fit_data, params)
                 source.polarize_net((np.mean(q), np.mean(u)))
 
+                probs = np.ones_like(data.evt_xs)
                 if self.fit_settings.particles[source_index]:
                     # Polarization weights (no need for the 1/2pi)
-                    probs = 1 + 0.5 * (data.evt_qs*q + data.evt_us*u) # No modulation factor included
+                    probs += 0.5 * (data.evt_qs*q + data.evt_us*u) # No modulation factor included
                     clipped_chars = np.clip(data.evt_bg_chars, 1e-5, 1-1e-5)
                     probs *= clipped_chars / (1 - clipped_chars)
                 else:
                     # Polarization weights (no need for the 1/2pi)
-                    probs = 1 + mus/2 * (data.evt_qs*q + data.evt_us*u)
+                    probs += 0.5 * mus * (data.evt_qs*q + data.evt_us*u)
 
                 # Flux weights
                 probs *= f
