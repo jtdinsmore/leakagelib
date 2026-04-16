@@ -247,3 +247,29 @@ def integrate_zoom(image, frac, force_odd=False):
     np.add.at(new_image, (new_idx, new_idy), image[old_idx, old_idy] * areas)
     
     return new_image
+
+def _convolve(src, kernel, fix_edges=True):
+    """
+    Convolve an image with a convolution kernel.
+
+    Parameters
+    ----------
+    src : ndarray
+        The source image.
+    kernel : ndarray
+        The convolution kernel.
+    fix_edges : bool, optional
+        If True, remove edge effects caused by non-zero-sum kernels. Default is True.
+
+    Returns
+    -------
+    array-like
+        Convolved image
+    """
+
+    convolved = scipy_convolve(src, kernel, mode="same")
+    if fix_edges:
+        flat = np.ones_like(src)
+        convolved /= scipy_convolve(flat, kernel, mode="same")
+
+    return convolved

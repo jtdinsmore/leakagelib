@@ -1,40 +1,12 @@
 import numpy as np
 import logging
-from scipy.interpolate import RegularGridInterpolator
 from astropy.io import fits
-from scipy.signal import convolve as scipy_convolve
 from .spectrum import EnergyDependence
-from .funcs import integrate_zoom
+from .funcs import integrate_zoom, _convolve
 
 WARN = True
 
 logger = logging.getLogger("leakagelib")
-
-def _convolve(src, kernel, fix_edges=True):
-    """
-    Convolve an image with a convolution kernel.
-
-    Parameters
-    ----------
-    src : ndarray
-        The source image.
-    kernel : ndarray
-        The convolution kernel.
-    fix_edges : bool, optional
-        If True, remove edge effects caused by non-zero-sum kernels. Default is True.
-
-    Returns
-    -------
-    array-like
-        Convolved image
-    """
-
-    convolved = scipy_convolve(src, kernel, mode="same")
-    if fix_edges:
-        flat = np.ones_like(src)
-        convolved /= scipy_convolve(flat, kernel, mode="same")
-
-    return convolved
 
 def _pad_image(image, num_pixels):
     '''
@@ -185,7 +157,7 @@ class Source:
         to `invalidate_psf` and `invalidate_source_polarization`. Default is False.
     """
     
-    def load_file(file_name, use_nn, num_pixels=None, target_pixel_size=None, source_pixel_size=None, hduis=[1]):
+    def load_file(file_name, num_pixels=None, target_pixel_size=None, source_pixel_size=None, hduis=[1]):
         """
         Load a file (FITS or NPY), zoom to the correct scale, and return the resulting image
         with the number of pixels and pixel size in arcseconds.
@@ -215,9 +187,9 @@ class Source:
             raise Exception("The source image must be dimension 2")
         assert(image.shape == (num_pixels, num_pixels))
 
-        return Source(image, use_nn, num_pixels, target_pixel_size)
+        return Source(image, num_pixels, target_pixel_size)
 
-    def delta(use_nn, num_pixels, pixel_size, store_info=False):
+    def delta(num_pixels, pixel_size, store_info=False):
         """
         Create a Source object representing a point source.
 
@@ -242,9 +214,9 @@ class Source:
             image[num_pixels//2+1, num_pixels//2] = 0.25
         else:
             image[num_pixels//2, num_pixels//2] = 1
-        return Source(image, use_nn, num_pixels, pixel_size, store_info, is_point_source=True)
+        return Source(image, num_pixels, pixel_size, store_info, is_point_source=True)
     
-    def uniform(use_nn, num_pixels, pixel_size, store_info=False):
+    def uniform(num_pixels, pixel_size, store_info=False):
         """
         Create a Source object representing a uniform background.
 
@@ -263,9 +235,9 @@ class Source:
 
         image = np.ones((num_pixels, num_pixels))
         image /= np.sum(image)
-        return Source(image, use_nn, num_pixels, pixel_size, store_info, is_uniform=True)
+        return Source(image, num_pixels, pixel_size, store_info, is_uniform=True)
     
-    def gaussian(use_nn, num_pixels, pixel_size, sigma, store_info=False):
+    def gaussian(num_pixels, pixel_size, sigma, store_info=False):
         """
         Create a Gaussian-shaped Source object.
 
@@ -284,24 +256,15 @@ class Source:
             to `invalidate_psf` and `invalidate_source_polarization`. Default is False.
         """
 
-
         line = np.arange(num_pixels).astype(float) * pixel_size
         line -= line[-1] / 2
         dist2 = np.sum(np.array(np.meshgrid(line, line))**2, axis=0)
         gaussian = np.exp(-dist2 / (2 * sigma**2))
         gaussian /= np.sum(gaussian)
 
-        return Source(gaussian, use_nn, num_pixels, pixel_size, store_info)
+        return Source(gaussian, num_pixels, pixel_size, store_info)
     
-    def no_image(use_nn):
-        """
-        Create an empty source for use in initializing a dataset which will not be binned
-        """
-        source = Source(np.array([[0]]), use_nn, 1, 1)
-        source.has_image = False
-        return source
-
-    def __init__(self, image, use_nn, source_size, pixel_size, store_info=False, is_point_source=False, is_uniform=False):
+    def __init__(self, image, source_size, pixel_size, store_info=False, is_point_source=False, is_uniform=False):
         if len(image.shape) != 2 or image.shape[0] != image.shape[1]:
             raise Exception("Source image must be two dimensional and square")
         if pixel_size > 5:
@@ -313,7 +276,6 @@ class Source:
         self.file_name = None
         self.psr_coord = None
         self.store_info = store_info
-        self.use_nn = use_nn
         self.fit_rois = None
 
         if self.source.shape != (source_size, source_size):
@@ -326,60 +288,6 @@ class Source:
         self.u_map = np.zeros_like(image)
         self.is_point_source = is_point_source
         self.is_uniform = is_uniform
-        self.has_image = True
-        self.invalidate_psf()
-        self.invalidate_source_polarization()
-        self.invalidate_event_data()
-
-    def invalidate_psf(self):
-        '''
-        Invalidate the stored data concerning the source flux. This should be done whenever
-        you change the PSF, e.g. by blurring it
-        '''
-        self.d_i_i = [None, None, None]
-        self.d_zs_i = [None, None, None]
-        self.d_qs_i = [None, None, None]
-        self.d_us_i = [None, None, None]
-        self.d_zk_i = [None, None, None]
-        self.d_qk_i = [None, None, None]
-        self.d_uk_i = [None, None, None]
-        self.d_xk_i = [None, None, None]
-        self.d_yk_i = [None, None, None]
-
-    def invalidate_source_polarization(self):
-        '''
-        Invalidate the stored data concerning the source polarization. This should be done
-        whenever you change the source polarization map
-        '''
-        self.d_i_q  = [None, None, None]
-        self.d_i_u  = [None, None, None]
-        self.d_zs_q = [None, None, None]
-        self.d_zk_q = [None, None, None]
-        self.d_xk_q = [None, None, None]
-        self.d_yk_q = [None, None, None]
-        self.d_zs_u = [None, None, None]
-        self.d_zk_u = [None, None, None]
-        self.d_xk_u = [None, None, None]
-        self.d_yk_u = [None, None, None]
-        self.d_qs_q = [None, None, None]
-        self.d_qk_q = [None, None, None]
-        self.d_us_u = [None, None, None]
-        self.d_uk_u = [None, None, None]
-
-    def invalidate_event_data(self):
-        '''
-        Invalidate the stored data concerning the events. This should be done whenever you change
-        the event positions or the number of events
-        '''
-        self.evt_d_i_i = {}
-        self.evt_d_zs_i = {}
-        self.evt_d_qs_i = {}
-        self.evt_d_us_i = {}
-        self.evt_d_zk_i = {}
-        self.evt_d_qk_i = {}
-        self.evt_d_uk_i = {}
-        self.evt_d_xk_i = {}
-        self.evt_d_yk_i = {}
 
     def polarize_file(self, file_name):
         '''
@@ -391,7 +299,6 @@ class Source:
         assert(image.shape == (self.source_size, self.source_size, 2))
         self.q_map = image[:,:,0]
         self.u_map = image[:,:,1]
-        self.invalidate_source_polarization()
 
     def polarize_array(self, qu_map):
         '''
@@ -399,7 +306,6 @@ class Source:
         '''
         self.q_map = qu_map[0]
         self.u_map = qu_map[1]
-        self.invalidate_source_polarization()
 
     def polarize_net(self, stokes):
         '''
@@ -408,124 +314,12 @@ class Source:
         q, u = stokes
         self.q_map = q
         self.u_map = u
-        self.invalidate_source_polarization()
 
     def convolve_psf(self, psf):
         '''
         convolve this source image with the PSF and return the image. The provided PSF must be constructed with this source object.
         '''
         return _convolve(self.source, psf.psf)
-
-    def _prepare_psf(self, psf):
-        '''
-        Prepare the leakage maps for the given source
-        '''
-
-        if self.is_uniform:
-            self.d_i_i[psf.det-1] = np.copy(self.source)
-            self.d_zs_i[psf.det-1] = np.zeros_like(self.source)
-            self.d_qs_i[psf.det-1] = np.zeros_like(self.source)
-            self.d_us_i[psf.det-1] = np.zeros_like(self.source)
-            self.d_zk_i[psf.det-1] = np.zeros_like(self.source)
-            self.d_qk_i[psf.det-1] = np.zeros_like(self.source)
-            self.d_uk_i[psf.det-1] = np.zeros_like(self.source)
-            self.d_xk_i[psf.det-1] = np.zeros_like(self.source)
-            self.d_yk_i[psf.det-1] = np.zeros_like(self.source)
-        else:
-            self.d_i_i[psf.det-1] = _convolve(self.source, psf.psf)
-            self.d_zs_i[psf.det-1] = _convolve(self.source, psf.d_zs, fix_edges=False)
-            self.d_qs_i[psf.det-1] = _convolve(self.source, psf.d_qs, fix_edges=False)
-            self.d_us_i[psf.det-1] = _convolve(self.source, psf.d_us, fix_edges=False)
-            self.d_zk_i[psf.det-1] = _convolve(self.source, psf.d_zk, fix_edges=False)
-            self.d_qk_i[psf.det-1] = _convolve(self.source, psf.d_qk, fix_edges=False)
-            self.d_uk_i[psf.det-1] = _convolve(self.source, psf.d_uk, fix_edges=False)
-            self.d_xk_i[psf.det-1] = _convolve(self.source, psf.d_xk, fix_edges=False)
-            self.d_yk_i[psf.det-1] = _convolve(self.source, psf.d_yk, fix_edges=False)
-
-    def _prepare_source_polarization(self, psf):
-        '''
-        Prepare the leakage maps for the given source polarization
-        '''
-
-        if self.is_point_source:
-            q_src, u_src = np.mean(self.q_map), np.mean(self.u_map)
-            self.d_i_q[psf.det-1] = self.d_i_i[psf.det-1] * q_src
-            self.d_i_u[psf.det-1] = self.d_i_i[psf.det-1] * u_src
-
-            self.d_zs_q[psf.det-1] = self.d_zs_i[psf.det-1] * q_src
-            self.d_zk_q[psf.det-1] = self.d_zk_i[psf.det-1] * q_src
-            self.d_xk_q[psf.det-1] = self.d_xk_i[psf.det-1] * q_src
-            self.d_yk_q[psf.det-1] = self.d_yk_i[psf.det-1] * q_src
-
-            self.d_zs_u[psf.det-1] = self.d_zs_i[psf.det-1] * u_src
-            self.d_zk_u[psf.det-1] = self.d_zk_i[psf.det-1] * u_src
-            self.d_xk_u[psf.det-1] = self.d_xk_i[psf.det-1] * u_src
-            self.d_yk_u[psf.det-1] = self.d_yk_i[psf.det-1] * u_src
-
-            self.d_qs_q[psf.det-1] = self.d_qs_i[psf.det-1] * q_src
-            self.d_qk_q[psf.det-1] = self.d_qk_i[psf.det-1] * q_src
-
-            self.d_us_u[psf.det-1] = self.d_us_i[psf.det-1] * u_src
-            self.d_uk_u[psf.det-1] = self.d_uk_i[psf.det-1] * u_src
-        elif self.is_uniform:
-            q_src, u_src = np.mean(self.q_map), np.mean(self.u_map)
-            self.d_i_q[psf.det-1] = self.d_i_i[psf.det-1] * q_src
-            self.d_i_u[psf.det-1] = self.d_i_i[psf.det-1] * u_src
-
-            self.d_zs_q[psf.det-1] = self.d_zs_i[psf.det-1] * 0
-            self.d_zk_q[psf.det-1] = self.d_zk_i[psf.det-1] * 0
-            self.d_xk_q[psf.det-1] = self.d_xk_i[psf.det-1] * 0
-            self.d_yk_q[psf.det-1] = self.d_yk_i[psf.det-1] * 0
-
-            self.d_zs_u[psf.det-1] = self.d_zs_i[psf.det-1] * 0
-            self.d_zk_u[psf.det-1] = self.d_zk_i[psf.det-1] * 0
-            self.d_xk_u[psf.det-1] = self.d_xk_i[psf.det-1] * 0
-            self.d_yk_u[psf.det-1] = self.d_yk_i[psf.det-1] * 0
-
-            self.d_qs_q[psf.det-1] = self.d_qs_i[psf.det-1] * 0
-            self.d_qk_q[psf.det-1] = self.d_qk_i[psf.det-1] * 0
-
-            self.d_us_u[psf.det-1] = self.d_us_i[psf.det-1] * 0
-            self.d_uk_u[psf.det-1] = self.d_uk_i[psf.det-1] * 0
-        else:
-            self.d_i_q[psf.det-1] = _convolve(self.source * self.q_map, psf.psf)
-            self.d_i_u[psf.det-1] = _convolve(self.source * self.u_map, psf.psf)
-            
-            self.d_zs_q[psf.det-1] = _convolve(self.source * self.q_map, psf.d_zs, fix_edges=False)
-            self.d_zk_q[psf.det-1] = _convolve(self.source * self.q_map, psf.d_zk, fix_edges=False)
-            self.d_xk_q[psf.det-1] = _convolve(self.source * self.q_map, psf.d_xk, fix_edges=False)
-            self.d_yk_q[psf.det-1] = _convolve(self.source * self.q_map, psf.d_yk, fix_edges=False)
-            
-            self.d_zs_u[psf.det-1] = _convolve(self.source * self.u_map, psf.d_zs, fix_edges=False)
-            self.d_zk_u[psf.det-1] = _convolve(self.source * self.u_map, psf.d_zk, fix_edges=False)
-            self.d_xk_u[psf.det-1] = _convolve(self.source * self.u_map, psf.d_xk, fix_edges=False)
-            self.d_yk_u[psf.det-1] = _convolve(self.source * self.u_map, psf.d_yk, fix_edges=False)
-            
-            self.d_qs_q[psf.det-1] = _convolve(self.source * self.q_map, psf.d_qs, fix_edges=False)
-            self.d_qk_q[psf.det-1] = _convolve(self.source * self.q_map, psf.d_qk, fix_edges=False)
-            
-            self.d_us_u[psf.det-1] = _convolve(self.source * self.u_map, psf.d_us, fix_edges=False)
-            self.d_uk_u[psf.det-1] = _convolve(self.source * self.u_map, psf.d_uk, fix_edges=False)
-
-    def _prepare_event_data(self, data, psf):
-        poses = (data.evt_ys, data.evt_xs)
-        lines = (self.pixel_centers, self.pixel_centers)
-        key = (data.obs_id, data.det)
-        self.evt_d_i_i[key] = RegularGridInterpolator(lines, self.d_i_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
-        self.evt_d_zs_i[key] = RegularGridInterpolator(lines, self.d_zs_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
-        self.evt_d_zk_i[key] = RegularGridInterpolator(lines, self.d_zk_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
-        self.evt_d_qs_i[key] = RegularGridInterpolator(lines, self.d_qs_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
-        self.evt_d_qk_i[key] = RegularGridInterpolator(lines, self.d_qk_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
-        self.evt_d_us_i[key] = RegularGridInterpolator(lines, self.d_us_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
-        self.evt_d_uk_i[key] = RegularGridInterpolator(lines, self.d_uk_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
-        self.evt_d_xk_i[key] = RegularGridInterpolator(lines, self.d_xk_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
-        self.evt_d_yk_i[key] = RegularGridInterpolator(lines, self.d_yk_i[psf.det-1], fill_value=0, bounds_error=False)(poses)
-
-    def _apply_roi(self, rois):
-        self.fit_rois = rois
-
-    def _roi_weighted_mean(self, array, key):
-        return np.sum(array * self.fit_rois[key]) / np.sum(self.fit_rois[key])
 
     def compute_leakage(self, psf, spectrum, energy_dependence=None, normalize=False):
         """
@@ -595,98 +389,6 @@ class Source:
             u /= i
 
         return (i, q, u)
-
-    def get_event_p_r_given_phi(self, psf, data, overwrite_mus=None, energy_dependence=None):
-        """
-        Get the probability for an array of events to have their positions given their polarization.
-
-        Parameters
-        ----------
-        psf : PSF
-            PSF for the detector. Sky-calibrated PSFs recommended.
-        data : IXPEData
-            IXPEData object containing events. Reads evt_xs, evt_ys, evt_qs, evt_us, evt_energies.
-            If the PSF rotation angle is < 1e-5, the antirotated versions will be read.
-        energy_dependence : callable, optional
-            Function specifying the energy dependence of sigma_perp and sigma_parallel.
-            Defaults to simulation-measured dependences for NN or Mom depending on this Source.
-
-        Returns
-        -------
-        array-like
-            Probabilities for each event.
-        """
-
-
-        key = (data.obs_id, data.det)
-
-        if energy_dependence is None:
-            energy_dependence = EnergyDependence.default(self.use_nn)
-        if overwrite_mus is None:
-            mus = data.evt_mus
-        else:
-            mus = overwrite_mus    
-
-        if not self.store_info or self.d_i_i[psf.det-1] is None:
-            self._prepare_psf(psf)
-        if not self.store_info or self.d_i_q[psf.det-1] is None:
-            self._prepare_source_polarization(psf)
-        if not self.store_info or key not in self.evt_d_i_i:
-            self._prepare_event_data(data, psf)
-
-        # Compute leakage parameters
-        sigma_para2, sigma_perp2, k_para4 = energy_dependence.evaluate(data.evt_energies)
-        k_perp4 = 3 * sigma_perp2**2
-        sigma_plus = sigma_para2 + sigma_perp2
-        sigma_minus = sigma_para2 - sigma_perp2
-        k_plus = k_para4 + k_perp4
-        k_minus = k_para4 - k_perp4
-        k_cross = -k_minus / 4
-
-        # Normalize the probabilities by computing the integral over all position.
-        # The normalization condition is that the mean over the image is equal to 1
-        normalization = (
-            self._roi_weighted_mean(self.d_i_i[psf.det-1], key) +
-
-            sigma_plus * self._roi_weighted_mean(self.d_zs_i[psf.det-1], key) +
-            k_plus * self._roi_weighted_mean(self.d_zk_i[psf.det-1], key) +
-
-            mus/2 * (
-                sigma_minus * self._roi_weighted_mean(self.d_qs_q[psf.det-1], key) +
-                k_minus * self._roi_weighted_mean(self.d_qk_q[psf.det-1], key) +
-
-                sigma_minus * self._roi_weighted_mean(self.d_us_u[psf.det-1], key) +
-                k_minus * self._roi_weighted_mean(self.d_uk_u[psf.det-1], key)
-            )
-        ) # NB it's guaranteed that all sources have the same size
-
-        out = (
-            self.evt_d_i_i[key] +
-
-            sigma_plus * self.evt_d_zs_i[key] +
-            k_plus * self.evt_d_zk_i[key] + 
-
-            data.evt_qs/2 * (
-                sigma_minus * self.evt_d_qs_i[key] + 
-                k_minus * self.evt_d_qk_i[key]
-            ) +
-
-            data.evt_us/2 * (
-                sigma_minus * self.evt_d_us_i[key] + 
-                k_minus * self.evt_d_uk_i[key]
-            ) +
-
-            (data.evt_qs**2 - data.evt_us**2)/4 * (
-                k_cross * self.evt_d_xk_i[key]
-            ) + 
-
-            (data.evt_qs*data.evt_us)/2 * (
-                k_cross * self.evt_d_yk_i[key]
-            )
-        ) / normalization
-    
-        return out
-    
 
     def divide_by_mu(self, q, u, spectrum):
         '''

@@ -1,10 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
-import copy, logging
+import logging
 from .fit_data import FitData
 from .fit_result import FitResult, get_hess
-from .pcube import get_pcube
+from .fit_properties import FitProperties
 from ..psf import PSF
 
 logger = logging.getLogger("leakagelib")
@@ -33,22 +33,10 @@ class Fitter:
     - It is advisable to first center your data and retain it to a large circular aperture.
 
     """
-    def __init__(self, datas, fit_settings, psfs=None):
-
-
+    def __init__(self, fit_settings, psfs=None):
         # Check provided values
-        if len(datas) == 0:
-            raise Exception("Please provide a list of IXPEDatas")
-
-        self.datas = datas
-        self.fit_settings = copy.deepcopy(fit_settings)
-        self.fit_settings._finalize()
+        self.fit_props = FitProperties(fit_settings, psfs)
         self.fit_data = FitData(self.fit_settings)
-        self._load_psfs(psfs)
-        self.spatial_weight = True
-        
-        self._get_pcube_estimate()
-        self._get_flux_estimates()
 
     def __repr__(self):
         out = "FITTED PARAMETERS:\n"
@@ -337,64 +325,6 @@ class Fitter:
                     psf.blur(self.fit_settings.fixed_blur)
                 self.psfs.append(psf)
 
-    def _get_pcube_estimate(self):
-        # Get PCUBE estimate
-        outer_source = 40 # arcsec
-        inner_bg = 80 # arcsec
-        outer_bg = 120 # arcsec
-
-        src_datas = copy.deepcopy(self.datas)
-        bg_datas = copy.deepcopy(self.datas)
-        total_counts = 0
-        bg_counts = 0
-        data_mask = np.ones(len(src_datas), bool)
-        for i in range(len(self.datas)):
-            dist2s = self.datas[i].evt_xs**2 + self.datas[i].evt_ys**2
-            src_mask = dist2s < outer_source**2
-            bg_mask = (dist2s < outer_bg**2) & (dist2s > inner_bg**2)
-            if np.sum(src_mask) == 0 or np.sum(bg_mask) == 0:
-                data_mask[i] = False
-                continue
-            src_datas[i].retain(src_mask)
-            bg_datas[i].retain(bg_mask)
-            total_counts += np.sum(src_mask)
-            bg_counts += np.sum(bg_mask)
-        src_datas = np.array(src_datas)[data_mask]
-        bg_datas = np.array(bg_datas)[data_mask]
-
-        area_ratio = outer_source**2 / (outer_bg**2 - inner_bg**2)
-
-        if bg_counts == 0 or total_counts == 0:
-            self.pcube = [0, 0]
-            self.bg_frac = 0.5
-        else:
-            self.pcube = get_pcube(src_datas, (bg_datas, area_ratio))[:2]
-            self.bg_frac = bg_counts / total_counts * area_ratio
-
-        # If the PCUBE estimate is unphysical, move the PD to a physical value
-        result_pd = np.sqrt(self.pcube[0]**2 + self.pcube[1]**2)
-        if result_pd > 1:
-            self.pcube /= result_pd * 1.2
-
-    def _get_flux_estimates(self):
-        source_probs = np.zeros(len(self.fit_settings.sources))
-        for (data, psf) in zip(self.datas, self.psfs):
-            evt_probs = np.zeros((len(self.fit_settings.sources), len(data.evt_xs)))
-            for i, source in enumerate(self.fit_settings.sources):
-                evt_probs[i] = source.get_event_p_r_given_phi(psf, data)
-            evt_probs /= np.sum(evt_probs, axis=0)
-            source_probs += np.mean(evt_probs, axis=1)
-
-        norm = 1
-        for i in range(len(self.fit_settings.sources)):
-            if not self.fit_settings.fixed_flux[i]: continue
-            norm = self.fit_settings.fixed_flux[i] / source_probs[i]
-            break
-
-        self.flux_estimates = {}
-        for i, prob in enumerate(source_probs):
-            self.flux_estimates[self.fit_settings.names[i]] = prob * norm
-
     def _get_start_params(self):
         """
         Returns the start parameters of the fit, and the bounds. This function guesses that the
@@ -413,25 +343,19 @@ class Fitter:
                 source_name = None
 
             if param == "q":
-                if source_name == first_source_name:
-                    x0.append(self.pcube[0])
-                else:
-                    x0.append(0)
+                x0.append(0)
                 if self.fit_settings.guess_qu[source_index][0] is not None:
                     x0[-1] = self.fit_settings.guess_qu[source_index][0]
                 bounds.append((-1, 1))
 
             elif param == "u":
-                if source_name == first_source_name:
-                    x0.append(self.pcube[1])
-                else:
-                    x0.append(0)
+                x0.append(0)
                 if self.fit_settings.guess_qu[source_index][1] is not None:
                     x0[-1] = self.fit_settings.guess_qu[source_index][1]
                 bounds.append((-1, 1))
 
             elif param == "f":
-                x0.append(self.flux_estimates[source_name])
+                x0.append(1)
                 bounds.append((0, 100))
                 if self.fit_settings.guess_f[source_index] is not None:
                     x0[-1] = self.fit_settings.guess_f[source_index]
@@ -461,9 +385,7 @@ class Fitter:
                 sigmas.append(0.3)
             if param == "f":
                 sigmas.append(0.3)
-
         return sigmas
-
 
     def log_prob(self, params, prior=True, return_array=False):
         """
@@ -501,90 +423,56 @@ class Fitter:
         else:
             log_prob = 0
         
-        for data_index, (data, psf) in enumerate(zip(self.datas, self.psfs)):
-            evt_probs = np.zeros_like(data.evt_xs)
-            flux_norms = 0
-            for source_index, source in enumerate(self.fit_settings.sources):
-                source_name = self.fit_settings.names[source_index]
-                temporal_weights = self.fit_settings.temporal_weights[source_index]
-                spectral_weights = self.fit_settings.spectral_weights[source_index]
-                spectral_mus = self.fit_settings.spectral_mus[source_index]
-                sweeps = self.fit_settings.sweeps[source_index]
-                model_fn = self.fit_settings.model_fns[source_index]
-                if data.det not in self.fit_settings.detectors[source_index]:
-                    continue
-                if self.fit_settings.obs_ids[source_index] is not None and (data.obs_id not in self.fit_settings.obs_ids[source_index]):
-                    continue
+        evt_probs = {}
+        flux_norms = {}
+        for combo in self.fit_props.combos:
+            q = self.fit_data.param_to_value(params, "q", combo.name)
+            u = self.fit_data.param_to_value(params, "u", combo.name)
+            f = self.fit_data.param_to_value(params, "f", combo.name)
+            if prior:
+                if q**2 + u**2 > 1:
+                    return -1e10 * (1 + q**2 + u**2 - 1)
+                if f < 0:
+                    return -1e10 * (1 - f)
+                
+            # Set polarization
+            if combo.sweeps is not None:
+                # Use the time-dependent PA sweep models
+                new_q = q * combo.sweeps[0] - u * combo.sweeps[1]
+                new_u = q * combo.sweeps[1] + u * combo.sweeps[0]
+                q = new_q
+                u = new_u
+            if combo.model_fn is not None:
+                q, u = self.model_fn(combo.data.evt_times, self.fit_data, params)
+            combo.polarize_net((np.mean(q), np.mean(u)))
 
-                # Get the parameters and use the prior
-                q = self.fit_data.param_to_value(params, "q", source_name)
-                u = self.fit_data.param_to_value(params, "u", source_name)
-                f = self.fit_data.param_to_value(params, "f", source_name)
-                if spectral_mus is None:
-                    mus = data.evt_mus
-                else:
-                    mus = spectral_mus[data_index]
-                if prior:
-                    if q**2 + u**2 > 1:
-                        return -1e10 * (1 + q**2 + u**2 - 1)
-                    if f < 0:
-                        return -1e10 * (1 - f)
-                    
-                if sweeps is not None:
-                    # Use the time-dependent PA sweep models
-                    new_q = q * sweeps[data_index][0] - u * sweeps[data_index][1]
-                    new_u = q * sweeps[data_index][1] + u * sweeps[data_index][0]
-                    q = new_q
-                    u = new_u
-                if model_fn is not None:
-                    q, u = model_fn(data.evt_times, self.fit_data, params)
-                source.polarize_net((np.mean(q), np.mean(u)))
+            probs = combo.get_log_prob(q, u)
+            
+            if combo.data_key not in evt_probs:
+                evt_probs[combo.data_key] = np.zeros(len(combo.data.evt_xs))
+            evt_probs[combo.data_key] += probs * f
+            flux_norms[combo.data_key] += f
 
-                probs = np.ones_like(data.evt_xs)
-                if self.fit_settings.particles[source_index]:
-                    # Polarization weights (no need for the 1/2pi)
-                    probs += 0.5 * (data.evt_qs*q + data.evt_us*u) # No modulation factor included
-                    clipped_chars = np.clip(data.evt_bg_chars, 1e-5, 1-1e-5)
-                    probs *= clipped_chars / (1 - clipped_chars)
-                else:
-                    # Polarization weights (no need for the 1/2pi)
-                    probs += 0.5 * mus * (data.evt_qs*q + data.evt_us*u)
+        for key in evt_probs:
+            evt_probs[key] /= flux_norms[key]
 
-                # Flux weights
-                probs *= f
-                flux_norms += f
-
-                # Spatial weights
-                if self.spatial_weight:
-                    probs *= source.get_event_p_r_given_phi(psf, data, overwrite_mus=mus)
-
-                # Phase weights
-                if temporal_weights is not None:
-                    probs *= temporal_weights[data_index]
-
-                # Spectral weights
-                if spectral_weights is not None:
-                    probs *= spectral_weights[data_index]
-                    
-                evt_probs += probs
-
-            if return_array:
-                log_prob = np.concatenate([log_prob, np.log(evt_probs / flux_norms)])
-            else:
-                log_prob += np.sum(np.log(evt_probs / flux_norms))
+        if return_array:
+            log_prob = np.log(np.concatenate(list(evt_probs.values())))
+        else:
+            log_prob = 0
+            for v in evt_probs.values():
+                log_prob += np.sum(np.log(v))
 
         if not return_array and not np.isfinite(log_prob):
-            problem = None
+            problem = ""
             if self.fit_data.param_to_index("f", "pbkg") is not None:
                 if params[self.fit_data.param_to_index("f", "pbkg")] == 0:
                     if np.any([np.any(data.evt_bg_chars==1) for data in self.datas]):
                         problem = "You have events with bg_prob=1 in your data set, and the particle background flux is zero. This probably caused the problem. Try removing these events"
-            if problem is None:
+            if problem == "":
                 for name in self.fit_settings.names:
                     if self.fit_data.param_to_index("f", name) is not None and params[self.fit_data.param_to_index("f", name)] == 0:
                         problem = f"Your flux for source {name} is equal to zero."
-            if problem is None:
-                problem = "Your background source might be at fault - is the ROI you provided correct?"
                     
             param_str = "\n".join([f"{self.fit_data.index_to_param(i)}: {params[i]}" for i in range(len(params))])
             raise Exception(f"The log prob was not finite ({log_prob}) with parameters\n{param_str}\nThis happens when all your sources predict zero flux in a region of parameter space where at least one event was detected.\n\n{problem}")

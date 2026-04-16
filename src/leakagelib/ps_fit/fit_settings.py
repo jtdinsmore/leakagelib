@@ -1,10 +1,8 @@
 import numpy as np
-from scipy.interpolate import interp1d
 import logging
 from astropy.io import fits
 from . import spectral_weights
 from ..source import Source
-from ..settings import LEAKAGE_DATA_DIRECTORY
 from ..ixpe_data import IXPE_PIXEL_SIZE
 from ixpeobssim.irf import load_vign
 
@@ -22,10 +20,6 @@ def _get_num_pixels(datas):
     if n_pixels % 2 == 0:
         n_pixels += 1
     return n_pixels
-
-def _get_nn_bkg_spectrum():
-    e_centers, spectrum = np.load(f"{LEAKAGE_DATA_DIRECTORY}/bkg-spec/nn_bkg_spectrum.npy")
-    return interp1d(e_centers, spectrum, fill_value=0, bounds_error=False)
 
 class FitSettings:
     """
@@ -61,100 +55,9 @@ class FitSettings:
         self.model_fns = []
         self.vignette_radial_bins = np.arange(0, max_radius, 0.05) # Radial bins to be used to get the vignetting map
         self.roi = None
+        self.spatial_weight = True
         self.fixed_blur = 0
 
-    def _finalize(self):
-        """
-        This function performs some final actions which get the FitSettings object ready to be
-        fitted. In particular, it makes sure at least one of the fluxes is fixed so that
-        normalization is not ambiguous, and it sets store_info in each source object if possible
-        """
-
-        # Check if there are background weights
-        bg_weights = False
-        for data in self.datas:
-            if np.any(data.evt_bg_chars > 0):
-                bg_weights = True
-            
-        # Check if there is a particle source and an energy-weighted source
-        spectral_weights = False
-        particle_source_names = []
-        for (name, particle, weights) in zip(self.names, self.particles, self.spectral_weights):
-            if particle: 
-                particle_source_names.append(name)
-            if weights is not None:
-                spectral_weights = True
-
-        # Add the particle spectrum
-        if spectral_weights:
-            if self.datas[0].use_nn_energies:
-                spectrum = _get_nn_bkg_spectrum()
-            else:
-                spectrum = lambda e: (e**-1.87)
-            for name in particle_source_names:
-                self.set_spectrum(name, spectrum, use_rmf=False)
-
-        # Warn if no particle source added
-        if len(particle_source_names) == 0 and bg_weights:
-            logger.warning("Your data set has background characters assigned, but you did not add a "\
-                          "particle component. Particles will not be modeled. Was this intentional?")
-
-        # Warn if no particle source added
-        if len(particle_source_names) > 0 and not bg_weights:
-            raise Exception("You added a particle source, but there are no particle weights in this" \
-            " data set. Please remove the particle source or use a data set with weights.")
-
-        # Fix a flux
-        if np.all([self.fixed_flux[i] is None for i in range(len(self.names))]):
-            name = self.names[0]
-            logger.warning(f"All of your sources had variable flux. The fitter requires"\
-            f" one of the fluxes to be fixed. Fixing the flux associated with source {name} to 1.")
-            self.fix_flux(name, 1)
-        
-        # Set store info
-        store_info = True
-        # Do not store info if the PSF might be blurred
-        if self.fixed_blur is None:
-            store_info = False
-
-        for i, source in enumerate(self.sources):
-            source.store_info = store_info
-            source._apply_roi(self._finalize_roi(i))
-            source.invalidate_psf()
-            source.invalidate_source_polarization()
-            source.invalidate_event_data()
-
-        common_pixel_size = None
-        common_source_dimensions = None
-
-        # Check to make sure the data doesn't have any duplicates
-        keys = []
-        for data in self.datas:
-            key = (data.obs_id, data.det)
-            if key in keys:
-                raise Exception("Two of your data sets have identical detectors and observation numbers. If this is not a mistake, you should manually edit one of the observation numbers to make them distinct.")
-            keys.append(key)
-
-        # Print warnings if any of the sources have weird properties
-        for (name, source) in zip(self.names, self.sources):
-            if np.abs(source.pixel_size - 2.9729) > 1e-4:
-                logger.warning(f"The source {name} had pixel width not equal to 2.9729. 2.9279 is" \
-                " the pixel width of the sky calibrated PSF, and analysis will be most accurate if" \
-                " you use that pixel width for your sources too.")
-            if not source.has_image:
-                raise Exception(f"All sources must have an image.")
-            if common_pixel_size is not None:
-                if source.pixel_size != common_pixel_size or source.source.shape != common_source_dimensions:
-                    logger.warning(f"Your sources do not all have the same pixel size or dimensions."\
-                    " This will incorrectly apply different ROIs to different sources, or"\
-                    " maybe just crash. Make your source images all on the same scale to avoid this.")
-            common_pixel_size = source.pixel_size
-            common_source_dimensions = source.source.shape
-        
-        if self.roi is None:
-            raise Exception("You did not provide an ROI. Provide an ROI so that the background PDF"\
-            " can be normalized")
-        
     def _check_name(self, name):
         if name in self.names:
             raise Exception(f"The name {name} is not unique. Please pass another name.")
@@ -170,50 +73,6 @@ class FitSettings:
         if not self.sources[0].pixel_size == source.pixel_size:
             raise Exception(f"This source does not have the same pixel size as previous source(s). {standard_text}")
         
-    def _finalize_roi(self, source_index):
-        """
-        Get the ROI image for each detector, exposure map and vignetting corrected.
-
-        Parameters
-        ----------
-        source_index : int
-            The source index to be vignetted. The source's spectrum is used to weight vignetting. If None, vignetting is not applied
-
-        Returns
-        -------
-            list of array-like
-        A dictionary of vignetted ROIs, one per data set. The dictionary is indexed by the standard key
-        """
-        output = {}
-        for data in self.datas:
-            image = np.copy(self.roi)
-            key = (data.obs_id, data.det)
-
-            # Load the coords of the roi map
-            xs, ys = np.meshgrid(self.sources[0].pixel_centers, self.sources[0].pixel_centers)
-            with fits.open(data.filename) as hdul:
-                colx = hdul[1].columns["X"]
-                coly = hdul[1].columns["Y"]
-            stretch = np.cos(coly.coord_ref_value * np.pi / 180)
-            ras = ((xs - data.offsets[0]) / IXPE_PIXEL_SIZE - colx.coord_ref_point) / stretch * colx.coord_inc + colx.coord_ref_value
-            decs = ((ys - data.offsets[1]) / IXPE_PIXEL_SIZE - coly.coord_ref_point) * coly.coord_inc + coly.coord_ref_value
-            center = 300*IXPE_PIXEL_SIZE
-            off_axis_arcmin = np.sqrt((xs - data.offsets[0] - center)**2 + (ys - data.offsets[1] - center)**2) / 60
-
-            # Apply exposure map
-            if data.expmap is None:
-                logger.warning(f"Data set {data.obs_id} DU {data.det} had no exposure map loaded. Please load an exposure map if you are fitting to events in the vignetted portion")
-                output[key] = np.copy(self.roi)
-            else:
-                image *= data.expmap((ras, decs))
-
-            # Apply vignetting
-            if source_index is not None and self.spectral_vignettes[source_index] is not None:
-                image *= np.interp(off_axis_arcmin, self.vignette_radial_bins, self.spectral_vignettes[source_index])
-
-            output[key] = image
-        return output
-
     def add_point_source(self, name="src", det=(1,2,3,), obs_ids=None):
         """
         Add a point source to the fit.
