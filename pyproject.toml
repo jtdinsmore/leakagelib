@@ -11,14 +11,7 @@ requires-python = ">=3.9"
 authors = [
     { name = "Jack T. Dinsmore", email = "jtd@stanford.edu" }
 ]
-dependencies = [
-    "numpy>=1.26",
-    "scipy>=1.13.1",
-    "astropy>=6.1.3",
-    "ixpeobssim",
-    "tensorflow",
-    "matplotlib"
-]
+dependencies = {file = ["requirements.txt"]}
 
 [tool.setuptools]
 package-dir = {"" = "src"}

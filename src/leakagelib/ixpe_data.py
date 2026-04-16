@@ -2,6 +2,7 @@ import numpy as np
 import os, logging
 from scipy.linalg import pinvh
 from scipy.interpolate import RegularGridInterpolator
+from scipy.optimize import fsolve
 from astropy.io import fits
 from astropy.wcs import WCS
 from ixpeobssim.irf import load_vign
@@ -568,3 +569,14 @@ class IXPEData:
         decs = (self.evt_ys / IXPE_PIXEL_SIZE - coly.coord_ref_point) * coly.coord_inc + coly.coord_ref_value
 
         self.evt_exposures = self.expmap((ras-offset[0]/3600/stretch, decs-offset[1]/3600))
+
+    def get_flux_estimate(self):
+        """
+        Estimate the fraction of events in the dataset that are particles. This works by performing a mini-fit, neglecting all spatial and polarization information and just maximizing the likelihood for the particle flux given the observed particle characters.
+        """
+        bg_chars = np.clip(self.evt_bg_chars, 1e-5, 1 - 1e-5)
+        term = (1 - bg_chars) / (2*bg_chars - 1)
+        def solve_func(ps):
+            return np.sum(1 / (term + ps))
+        result = fsolve(solve_func, [0.5])
+        return result[0]
