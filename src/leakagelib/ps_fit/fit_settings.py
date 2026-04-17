@@ -4,7 +4,7 @@ from astropy.io import fits
 from . import spectral_weights
 from ..source import Source
 from ..ixpe_data import IXPE_PIXEL_SIZE
-from ixpeobssim.irf import load_vign
+from ixpeobssim.irf import load_vign, load_arf
 
 USE_SPECTRAL_MUS = False # Set to True to account for the fact that the finite detector energy
 # resolution means that the mu corresponding to the measured energy is different from the true mu,
@@ -30,37 +30,40 @@ class FitSettings:
         Create a fit settings object for use in fitting the data sets listed in "datas"
         """
         max_radius = 0
+        all_obs_ids = []
+        all_detectors = {}
         for data in datas:
             center = 300*IXPE_PIXEL_SIZE
             off_axis_arcmin = np.sqrt((data.evt_xs - data.offsets[0] - center)**2 + (data.evt_ys - data.offsets[1] - center)**2) / 60
             max_radius = max(max_radius, np.max(off_axis_arcmin))
+            all_obs_ids.append(data.obs_id)
+            if data.obs_id not in all_detectors:
+                all_detectors[data.obs_id] = []
+            all_detectors[data.obs_id].append(data.det)
+        self.all_detectors = all_detectors
+        self.all_obs_ids = np.unique(all_obs_ids)
 
-        self.datas = datas
-        self.sources = []
-        self.names = []
-        self.detectors = []
-        self.obs_ids = []
-        self.fixed_qu = []
-        self.fixed_flux = []
-        self.particles = []
-        self.guess_qu = []
-        self.guess_f = []
-        self.spectral_weights = []
-        self.spectral_vignettes = []
-        self.spectral_mus = []
-        self.temporal_weights = []
-        self.sweeps = []
-        self.extra_param_names = []
-        self.extra_param_data = []
-        self.model_fns = []
+        self.pixel_centers = None
         self.vignette_radial_bins = np.arange(0, max_radius, 0.05) # Radial bins to be used to get the vignetting map
-        self.roi = None
         self.spatial_weight = True
         self.fixed_blur = 0
+        self.roi = None
+        self.datas = datas
 
-    def _check_name(self, name):
-        if name in self.names:
-            raise Exception(f"The name {name} is not unique. Please pass another name.")
+        self.sources = {}
+        self.detectors = {}
+        self.obs_ids = {}
+        self.fixed_quf = {}
+        self.particles = {}
+        self.guess_quf = {}
+        self.model_fns = {}
+        self.spectral_weights = {}
+        self.spectral_mus = {}
+        self.temporal_weights = {}
+        self.sweeps = {}
+
+        self.spectral_vignettes = {}
+        self.extra_params = {}
 
     def _check_source_dim(self, source):
         if len(self.sources) == 0: return
@@ -68,12 +71,13 @@ class FitSettings:
         " If you are creating a source using your own Source object, add that source to the FitSettings" \
         " first. Make all `add_background` or `add_point_source` calls afterwards. They should use the" \
         " same image properties as the source you created."
-        if not self.sources[0].source.shape == source.source.shape:
+
+        if len(self.pixel_centers) != len(source.pixel_centers):
             raise Exception(f"This source does not have the same image size as previous source(s). {standard_text}")
-        if not self.sources[0].pixel_size == source.pixel_size:
+        if np.any(np.abs(self.pixel_centers - source.pixel_centers) > 1e-4):
             raise Exception(f"This source does not have the same pixel size as previous source(s). {standard_text}")
         
-    def add_point_source(self, name="src", det=(1,2,3,), obs_ids=None):
+    def add_point_source(self, name="src", det=None, obs_ids=None):
         """
         Add a point source to the fit.
 
@@ -82,24 +86,24 @@ class FitSettings:
         name : str, optional
             Name of the source. Default is "src".
         det : tuple of int, optional
-            Detectors the source should apply to.
+            Detectors the source should apply to. Default is None (all detectors)
         obs_ids : tuple of int, optional
-            Observation IDs the source should apply to. Default is (1, 2, 3).
+            Observation IDs the source should apply to. Default is None (all observations).
         """
 
-        use_nn = self.datas[0].use_nn
-
-        if len(self.sources) == 0:
+        if self.pixel_centers is None:
             num_pixels = _get_num_pixels(self.datas)
             pixel_width = 2.9729
         else:
-            num_pixels = self.sources[0].source.shape[0]
-            pixel_width = self.sources[0].pixel_size
+            num_pixels = len(self.pixel_centers)
+            pixel_width = self.pixel_centers[1] - self.pixel_centers[0]
 
-        source = Source.delta(use_nn, num_pixels, pixel_width)
+        source = Source.delta(num_pixels, pixel_width)
+        if self.pixel_centers is None:
+            self.pixel_centers = source.pixel_centers
         self.add_source(source, name, det, obs_ids)
     
-    def add_background(self, name="bkg", det=(1,2,3), obs_ids=None):
+    def add_background(self, name="bkg", det=None, obs_ids=None):
         """
         Add a uniform, polarized background to the fit.
 
@@ -108,7 +112,7 @@ class FitSettings:
         name : str, optional
             Name of the source. Default is "bkg".
         det : tuple of int, optional
-            Detectors the source should apply to. Default is (1, 2, 3).
+            Detectors the source should apply to. Default is None (all detectors)
         obs_ids : tuple of int, optional
             Observation IDs the source should apply to. Default is None (all observations).
 
@@ -118,17 +122,17 @@ class FitSettings:
         - The shape of the background image is set to the same shape as the first source object added to the fit settings. If no source exists, pixel width is set to the PSF native size of 2.9729 arcsec and number of pixels is the largest radius of events in the data set. 
         """
 
-        use_nn = self.datas[0].use_nn
-        if len(self.sources) == 0:
+        if self.pixel_centers is None:
             num_pixels = _get_num_pixels(self.datas)
             pixel_width = 2.9729
         else:
-            num_pixels = self.sources[0].source.shape[0]
-            pixel_width = self.sources[0].pixel_size
-        source = Source.uniform(use_nn, num_pixels, pixel_width)
+            num_pixels = len(self.pixel_centers)
+            pixel_width = self.pixel_centers[1] - self.pixel_centers[0]
+
+        source = Source.uniform(num_pixels, pixel_width)
         self.add_source(source, name, det, obs_ids)
     
-    def add_particle_background(self, name="pbkg", det=(1,2,3), obs_ids=None):
+    def add_particle_background(self, name="pbkg", det=None, obs_ids=None):
         """
         Add a uniform particle background component to the fit.
 
@@ -137,41 +141,22 @@ class FitSettings:
         name : str, optional
             Name of the source. Default is "pbkg".
         det : tuple of int, optional
-            Detectors the source should apply to. Default is (1, 2, 3).
+            Detectors the source should apply to. Default is None (all detectors)
         obs_ids : tuple of int, optional
             Observation IDs the source should apply to. Default is None (all observations).
         """
 
-        use_nn = self.datas[0].use_nn
         if len(self.sources) == 0:
             num_pixels = _get_num_pixels(self.datas)
             pixel_width = 2.9729
         else:
-            num_pixels = self.sources[0].source.shape[0]
-            pixel_width = self.sources[0].pixel_size
-        source = Source.uniform(use_nn, num_pixels, pixel_width)
-        self.add_particle_source(source, name, det, obs_ids)
-    
-    def add_particle_source(self, source, name, det=(1,2,3), obs_ids=None):
-        """
-        Add a particle source component to the fit.
-
-        Parameters
-        ----------
-        source : Source
-            Source object containing the flux map.
-        name : str
-            Name of the source.
-        det : tuple of int, optional
-            Detectors the source should apply to.
-        obs_ids : tuple of int, optional
-            Observation IDs the source should apply to. Default is None (all observations).
-        """
-
+            num_pixels = len(self.pixel_centers)
+            pixel_width = self.pixel_centers[1] - self.pixel_centers[0]
+        source = Source.uniform(num_pixels, pixel_width)
         self.add_source(source, name, det, obs_ids)
-        self.particles[-1] = True
+        self.particles[name] = True
     
-    def add_source(self, source, name, det=(1,2,3,), obs_ids=None):
+    def add_source(self, source, name, det=None, obs_ids=None):
         """
         Add an extended source to the fit.
 
@@ -182,30 +167,35 @@ class FitSettings:
         name : str
             Name of the source.
         det : tuple of int, optional
-            Detectors the source should apply to.
+            Detectors the source should apply to. Default is None (all detectors)
         obs_ids : tuple of int, optional
-            Observation IDs the source should apply to. Default is (1, 2, 3).
+            Observation IDs the source should apply to. Default is None (all observations).
         """
 
-        self._check_name(name)
+        real_obs_ids = np.copy(self.all_obs_ids) if obs_ids is None else obs_ids
+        detectors = []
+        for o in real_obs_ids:
+            for d in self.all_detectors[o]:
+                detectors.append(d)
+        detectors = np.unique(detectors)
+
         self._check_source_dim(source)
-        self.sources.append(source)
-        self.names.append(name)
-        self.detectors.append(det)
-        self.obs_ids.append(obs_ids)
-        self.fixed_qu.append(None)
-        self.fixed_flux.append(None)
-        self.guess_qu.append((None, None))
-        self.guess_f.append(None)
-        self.particles.append(False)
-        self.spectral_weights.append(None)
-        self.spectral_mus.append(None)
-        self.spectral_vignettes.append(None)
-        self.temporal_weights.append(None)
-        self.model_fns.append(None)
-        self.sweeps.append(None)
+        self.sources[name] = source
+        self.detectors[name] = detectors
+        self.obs_ids[name] = real_obs_ids
+        self.fixed_quf[name] = [None, None, None]
+        self.guess_quf[name] = [0, 0, 1]
+        self.particles[name] = False
+        self.spectral_weights[name] = None
+        self.spectral_mus[name] = None
+        self.spectral_vignettes[name] = None
+        self.temporal_weights[name] = None
+        self.model_fns[name] = None
+        self.sweeps[name] = None
+        if self.pixel_centers is None:
+            self.pixel_centers = source.pixel_centers
         
-    def set_spectrum(self, source_name, spectrum, use_rmf=True, duty_cycle=None):
+    def set_spectrum(self, source_name, spectrum, use_arf=True, use_rmf=True, duty_cycle=None, irf_name=None):
         """
         Set a spectrum for a source. Weights are assigned by running the spectrum
         function on all event energies.
@@ -216,35 +206,48 @@ class FitSettings:
             Name of the source to assign spectral weights.
         spectrum : callable
             Function taking an energy scalar or array and returning a weight scalar or array.
+        use_arf : bool
+            Set to False to not apply IXPE's ARF. When applied, the ARF of detector 1 is used (the ARF difference is quite small between detectors) Default: True. The ARF is loaded by IXPEobssim.
+        use_rmf : bool
+            Set to False to not apply IXPE's RMF.
+        irf_name : str, optional
+            IXPEobssim's name for the ARF to be used. IXPEobssim's default will be used when not provided.
         duty_cycle : callable, optional
             Fraction of data to distribute over energy. Default is uniform over the data range.
             If a contiguous energy cut was applied, the default may be used.
         """
 
-        if not source_name in self.names:
+        if not source_name in self.sources:
             raise Exception(f"The source {source_name} is not in the list of sources.")
-        index = self.names.index(source_name)
+
+        if use_arf:
+            if irf_name is None:
+                arf = load_arf()
+            else:
+                arf = load_arf(irf_name=irf_name)
+            arf_spectrum = lambda e: spectrum(e) * arf(e)
+        else:
+            arf_spectrum = lambda e: spectrum(e)
 
         if use_rmf:
             rmf = spectral_weights.RMF()
         else:
             rmf = spectral_weights.RMF.delta()
-        convolved_spec = rmf.convolve_spectrum(spectrum)
+        convolved_spec = rmf.convolve_spectrum(arf_spectrum)
 
         weights = []
         mus = []
         max_energy = -np.inf
         min_energy = np.inf
         for data in self.datas:
-            convolved_spec_mu = rmf.convolve_spectrum_mu(spectrum, data.use_nn)
             max_energy = max(np.max(data.evt_energies), max_energy)
             min_energy = min(np.min(data.evt_energies), min_energy)
             these_weights = convolved_spec(data.evt_energies)
-            these_mus = convolved_spec_mu(data.evt_energies) / these_weights
-
             weights.append(these_weights)
 
             if USE_SPECTRAL_MUS:
+                convolved_spec_mu = rmf.convolve_spectrum_mu(arf_spectrum, data.use_nn)
+                these_mus = convolved_spec_mu(data.evt_energies) / these_weights
                 mus.append(these_mus)
             else:
                 mus.append(data.evt_mus)
@@ -268,9 +271,9 @@ class FitSettings:
         for radius in self.vignette_radial_bins:
             vignettes.append(np.sum(vign_function(energies, radius) * spectrum_array / integral))
 
-        self.spectral_vignettes[index] = vignettes
-        self.spectral_weights[index] = weights
-        self.spectral_mus[index] = mus
+        self.spectral_vignettes[source_name] = vignettes
+        self.spectral_weights[source_name] = weights
+        self.spectral_mus[source_name] = mus
         
     def set_lightcurve(self, source_name, lightcurve, duty_cycle=None):
         """
@@ -288,9 +291,8 @@ class FitSettings:
             If a contiguous or no time cut was applied, the default may be used.
         """
 
-        if not source_name in self.names:
+        if not source_name in self.sources:
             raise Exception(f"The source {source_name} is not in the list of sources.")
-        index = self.names.index(source_name)
 
         weights = []
         max_time = -np.inf
@@ -313,7 +315,7 @@ class FitSettings:
         for i in range(len(weights)):
             weights[i] *= multiplier
 
-        self.temporal_weights[index] = weights
+        self.temporal_weights[source_name] = weights
         
     def set_sweep(self, source_name, sweep):
         """
@@ -328,17 +330,16 @@ class FitSettings:
             A fit will determine a global PA offset and PD.
         """
 
-        if not source_name in self.names:
+        if not source_name in self.sources:
             raise Exception(f"The source {source_name} is not in the list of sources.")
-        index = self.names.index(source_name)
-        if self.model_fns[index] is not None:
+        if self.model_fns[source_name] is not None:
             raise Exception("You cannot set a sweep for a source that you have already set a polarization model function for")
 
         sweeps = []
         for data in self.datas:
             sweeps.append(sweep(data.evt_times))
 
-        self.sweeps[index] = sweeps
+        self.sweeps[source_name] = sweeps
         
     def set_model_fn(self, source_name, model_fn):
         """
@@ -355,13 +356,12 @@ class FitSettings:
             FitSettings.add_param.
         """
 
-        if not source_name in self.names:
+        if not source_name in self.sources:
             raise Exception(f"The source {source_name} is not in the list of sources.")
-        index = self.names.index(source_name)
-        if self.sweeps[index] is not None:
+        if self.sweeps[source_name] is not None:
             raise Exception("You cannot set a model function for a source that you have already set a polarization sweep for")
         
-        self.model_fns[index] = model_fn
+        self.model_fns[source_name] = model_fn
         self.fix_qu(source_name, (0, 0)) # Turn off the q and u values from this source, since this function overwrites them
 
     def add_param(self, name, initial_value=0, bounds=(None, None), num_diff_step=1e-3):
@@ -380,10 +380,11 @@ class FitSettings:
             Step size used for numerical computation of uncertainties.
         """
 
-        if name == "q" or name == "u" or name == "f" or name == "sigma" or name in self.extra_param_names:
-            raise Exception(f"The name {name} cannot be used twice. Parameter names `q`, `u`, `f`, and `sigma` are forbidden.")
-        self.extra_param_names.append(name)
-        self.extra_param_data.append((initial_value, bounds, num_diff_step))
+        if name == "q" or name == "u" or name == "f" or name == "sigma":
+            raise Exception(f"Parameter names `q`, `u`, `f`, and `sigma` are forbidden.")
+        if  name in self.extra_params:
+            raise Exception(f"The name {name} cannot be used twice.")
+        self.extra_params[name] = (initial_value, bounds, num_diff_step)
 
     def fix_qu(self, source_name, qu):
         """
@@ -397,10 +398,10 @@ class FitSettings:
             Tuple of Stokes coefficients to fix. Pass None to free the polarization.
         """
 
-        if not source_name in self.names:
+        if not source_name in self.sources:
             raise Exception(f"The source {source_name} is not in the list of sources.")
-        index = self.names.index(source_name)
-        self.fixed_qu[index] = qu
+        self.fixed_quf[source_name][0] = qu[0]
+        self.fixed_quf[source_name][1] = qu[1]
 
     def set_initial_qu(self, source_name, qu):
         """
@@ -414,10 +415,10 @@ class FitSettings:
             Initial guess of Stokes coefficients. Pass None to leave free.
         """
 
-        if not source_name in self.names:
+        if not source_name in self.sources:
             raise Exception(f"The source {source_name} is not in the list of sources.")
-        index = self.names.index(source_name)
-        self.guess_qu[index] = qu
+        self.guess_quf[source_name][0] = qu[0]
+        self.guess_quf[source_name][1] = qu[1]
 
     def fix_flux(self, source_name, flux):
         """
@@ -435,10 +436,9 @@ class FitSettings:
         Fixing a single source is necessary to set the flux scale. Fixing multiple sources fixes relative luminosities. The fitter assumes the true flux is between 0 and 100, so you should set your fluxes accordingly.
         """
 
-        if not source_name in self.names:
+        if not source_name in self.sources:
             raise Exception(f"The source {source_name} is not in the list of sources.")
-        index = self.names.index(source_name)
-        self.fixed_flux[index] = flux
+        self.fixed_quf[source_name][2] = flux
 
     def set_initial_flux(self, source_name, flux):
         """
@@ -452,10 +452,9 @@ class FitSettings:
             Initial flux value.
         """
 
-        if not source_name in self.names:
+        if not source_name in self.sources:
             raise Exception(f"The source {source_name} is not in the list of sources.")
-        index = self.names.index(source_name)
-        self.guess_f[index] = flux
+        self.guess_quf[source_name][2] = flux
 
     def fit_psf_sigma(self):
         """
@@ -473,41 +472,54 @@ class FitSettings:
         """
         Provide the region of interest (ROI) to the fitter after data has been cut.
         
-        This function does NOT cut events; it only tells the fitter to expect events cut to this ROI. You should cut the events yourself.
-
         Notes
         -----
-        The roi_image must have the same dimensions as source objects.
+            The roi_image must have the same dimensions as source objects. If a source with a different size is already added to the fit, an error will be thrown. If those pre-loaded sources are point sources or background, solve this problem by simply applying the ROI first. If they are sources you created, then you need to make sure your sources and background have the same shape and pixel sizes.
         """
+
         if len(self.sources) > 0:
-            if self.sources[0].source.shape != roi_image.shape:
-                raise Exception("The ROI image must have the same size as the source images. You can access the source dimensions and pixel size with FitSettings.sources[0].source.shape, and FitSettings.sources[0].pixel_size.")
+            if len(self.pixel_centers) != roi_image.shape[0]:
+                raise Exception("The ROI image must have the same size as the source images. You can access the coordinates of each pixel are stored in FitSettings.pixel_centers.")
         self.roi = roi_image
+
+        # Cut events outside the ROI
+        total_cut = 0
+        for data_index, data in enumerate(self.datas):
+            ix = np.digitize(data.evt_xs, self.pixel_centers) - 1
+            iy = np.digitize(data.evt_ys, self.pixel_centers) - 1
+            cut_mask = roi_image[ix, iy] < 1e-4
+            if np.sum(cut_mask) > 0:
+                total_cut += np.sum(cut_mask)
+                data.retain(~cut_mask)
+
+            # Remove weights already established
+            for name in self.sources.keys():
+                if self.spectral_weights[name] is not None:
+                    self.spectral_weights[name][data_index] = self.spectral_weights[name][data_index][~cut_mask]
+                if self.temporal_weights[name] is not None:
+                    self.temporal_weights[name][data_index] = self.temporal_weights[name][data_index][~cut_mask]
+                if self.spectral_mus[name] is not None:
+                    self.spectral_mus[name][data_index] = self.spectral_mus[name][data_index][~cut_mask]
+                if self.sweeps[name] is not None:
+                    self.sweeps[name][data_index] = self.sweeps[name][data_index][~cut_mask]
+
+        logger.warning(f"{total_cut} events were cut for being outside the region of interest.")
 
     def apply_circular_roi(self, radius):
         """
         Provide a circular ROI centered on the origin (radius in arcseconds).
-        
-        This function does NOT cut events; it only tells the fitter to expect events cut to this radius. You should cut the events yourself.
         """
         if len(self.sources) == 0:
-            raise Exception("You cannot apply a circular ROI until you have added at least one source. The function needs to know the dimensions of your source images")
-        
-        # Make a subsampled grid
-        original_dim = len(self.sources[0].source)
-        subsamples = 8
-        subsample_edges = np.arange(original_dim*subsamples+1).astype(float) * self.sources[0].pixel_size/subsamples
-        subsample_centers = (subsample_edges[1:] + subsample_edges[:-1])/2
-        subsample_centers -= np.mean(subsample_centers)
+            pixel_width = 2.9729
+            num_pixels = np.ceil(2*radius / 2.9729) + 2
+            if num_pixels % 1 == 0:
+                num_pixels += 1
+            self.pixel_centers = np.arange(num_pixels) * pixel_width
+            self.pixel_centers -= np.mean(self.pixel_centers)
 
-        # Make the ROI for this grid
-        xs, ys = np.meshgrid(subsample_centers, subsample_centers)
+        xs, ys = np.meshgrid(self.pixel_centers, self.pixel_centers)
         roi_image = xs**2 + ys**2 < radius**2
-
-        # Re-sum it into the original dimensions
-        resummed = roi_image.reshape(original_dim, subsamples, original_dim, subsamples).mean(axis=(1, 3))
-
-        self.apply_roi(resummed)
+        self.apply_roi(roi_image.astype(float))
 
     def get_n_sources(self):
         """

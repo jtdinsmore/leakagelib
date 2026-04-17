@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
+from scipy.signal import convolve
 from .settings import *
 
 KERNEL_ZS = np.array([
@@ -267,9 +268,9 @@ def _convolve(src, kernel, fix_edges=True):
         Convolved image
     """
 
-    convolved = scipy_convolve(src, kernel, mode="same")
+    convolved = convolve(src, kernel, mode="same")
     if fix_edges:
         flat = np.ones_like(src)
-        convolved /= scipy_convolve(flat, kernel, mode="same")
+        convolved /= convolve(flat, kernel, mode="same")
 
     return convolved

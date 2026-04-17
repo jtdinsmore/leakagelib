@@ -30,3 +30,4 @@ The below jupyter notebooks give examples of using LeakageLib for polarimetric f
     examples/point-source-fit.ipynb
     examples/extended-source-fit.ipynb
     examples/time-varying-fit.ipynb
+    examples/mcmc-fit.ipynb

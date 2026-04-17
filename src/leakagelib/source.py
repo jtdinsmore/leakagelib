@@ -46,9 +46,9 @@ def _pad_image(image, num_pixels):
         ), axis=1)
     return image
 
-def _process_file(file_name, num_pixels, target_pixel_size, source_pixel_size, hduis=[1], rescale=False):
+def _process_file(file_name, num_pixels, target_pixel_size, hdui=0, rescale=False):
     """
-    Load a file (FITS or NPY), zoom to the correct scale, and return the resulting image
+    Load a FITS file, zoom to the correct scale, and return the resulting image
     with the number of pixels and pixel size in arcseconds.
 
     Parameters
@@ -59,10 +59,8 @@ def _process_file(file_name, num_pixels, target_pixel_size, source_pixel_size, h
         Number of pixels to use in the output image.
     target_pixel_size : float or None
         Width of each pixel in arcseconds for the returned image. None implies use the source pixel size.
-    source_pixel_size : float or None
-        Width of each pixel in arcseconds in the current image. None implies read from the file.
-    hduis : list of int
-        HDU indices of the images to load.
+    hdui : int
+        HDU index of the images to load.
 
     Returns
     -------
@@ -72,71 +70,41 @@ def _process_file(file_name, num_pixels, target_pixel_size, source_pixel_size, h
         - target_pixel_size: width of each pixel in arcseconds
     """
 
-
-    if file_name.endswith(".fits"):
-        image = []
-        with fits.open(file_name) as hdul:
-            for hduli in hduis:
-                this_source_pixel_size=hdul[hduli].header["CDELT2"] * 3600 # Arcsec
-                if source_pixel_size is None:
-                    source_pixel_size = this_source_pixel_size
-                if target_pixel_size is None:
-                    target_pixel_size = source_pixel_size
-                if np.abs(target_pixel_size - this_source_pixel_size) > 1e-5:
-                    zoom_ratio = this_source_pixel_size / target_pixel_size
-                    new_image = integrate_zoom(hdul[hduli].data, zoom_ratio, force_odd=True)
-                    if rescale:
-                        new_image *= zoom_ratio**2
-                else:
-                    new_image = hdul[hduli].data
-                image.append(new_image)
-        image = np.transpose(image, (1,2,0))
-
-    elif file_name.endswith(".npy"):
-        if source_pixel_size is None:
-            raise Exception("A source pixel size must be passed in if loading an npy file.")
-
+    with fits.open(file_name) as hdul:
+        image = hdul[hdui].data
+        if image.shape[0] != image.shape[1]:
+            raise Exception("LeakageLib only deals with square images")
+        
+        source_pixel_size = hdul[hdui].header["CDELT2"] * 3600 # Arcsec
         if target_pixel_size is None:
             target_pixel_size = source_pixel_size
-            
-        image = np.load(file_name)
-        if len(image.shape) == 2:
-            image = image.reshape((image.shape[0], image.shape[1], 1))
-        for i in image.shape[-1]:
-            if np.abs(target_pixel_size - source_pixel_size) > 1e-5:
-                zoom_ratio = source_pixel_size / target_pixel_size
-                new_image = integrate_zoom(image[:,:,i], zoom_ratio, force_odd=True)
-                if rescale:
-                    new_image *= zoom_ratio**2
-            else:
-                new_image = image[:,:,i]
+        elif np.abs(target_pixel_size - source_pixel_size) > 1e-5:
+            zoom_ratio = source_pixel_size / target_pixel_size
+            image = integrate_zoom(hdul[hdui].data, zoom_ratio, force_odd=True)
+            if rescale:
+                image *= zoom_ratio**2
+    image = np.transpose(image, (1,2,0))
 
-            image[:,:,i] = new_image
-
-    if image.shape[-1] == 1:
-        image = image.reshape((image.shape[0], image.shape[1]))
-
+    # Change the image size to match requirements
     if num_pixels is None:
         num_pixels = image.shape[0]
-
-    assert(image.shape[0] == image.shape[1])
-    if len(image) > num_pixels:
-        # Shrink the image
-        middle = len(image) // 2
-        add = 0 if num_pixels % 2 == 0 else 1
-        image = image[
-            middle - num_pixels // 2:middle + num_pixels // 2 + add,
-            middle - num_pixels // 2:middle + num_pixels // 2 + add
-        ]
-    elif len(image) < num_pixels:
-        logger.warning("Zero padding the source image")
-        if len(image.shape) == 2:
-            image = _pad_image(image, num_pixels)
-        elif len(image.shape) == 3:
-            new_image = []
-            for last_index in range(image.shape[-1]):
-                new_image.append(_pad_image(image[:,:,last_index], num_pixels))
-            image = np.transpose(new_image, (1,2,0))
+    else:
+        if len(image) > num_pixels:
+            middle = len(image) // 2
+            add = 0 if num_pixels % 2 == 0 else 1
+            image = image[
+                middle - num_pixels // 2:middle + num_pixels // 2 + add,
+                middle - num_pixels // 2:middle + num_pixels // 2 + add
+            ]
+        elif len(image) < num_pixels:
+            logger.warning("Zero padding the source image")
+            if len(image.shape) == 2:
+                image = _pad_image(image, num_pixels)
+            elif len(image.shape) == 3:
+                new_image = []
+                for last_index in range(image.shape[-1]):
+                    new_image.append(_pad_image(image[:,:,last_index], num_pixels))
+                image = np.transpose(new_image, (1,2,0))
     
     return image, num_pixels, target_pixel_size
 
@@ -152,26 +120,24 @@ class Source:
         Number of pixels in the output Source object.
     pixel_size : float
         Width of each pixel in arcseconds.
-    store_info : bool, optional
-        If True, stores source and PSF info to speed up computations. Requires manual calls
-        to `invalidate_psf` and `invalidate_source_polarization`. Default is False.
+    hduis : int
+        HDU index to take the source out of. (Default: 0)
     """
     
-    def load_file(file_name, num_pixels=None, target_pixel_size=None, source_pixel_size=None, hduis=[1]):
+    def load_file(file_name, num_pixels=None, target_pixel_size=None, hdui=0):
         """
-        Load a file (FITS or NPY), zoom to the correct scale, and return the resulting image
-        with the number of pixels and pixel size in arcseconds.
+        Load a FITS file, zoom to the correct scale, and return the resulting image
+        with the number of p
+        ixels and pixel size in arcseconds.
 
         Parameters
         ----------
         file_name : str
             Name of the file to load.
-        num_pixels : int
-            Number of pixels to use in the output image.
-        target_pixel_size : float or None
-            Width of each pixel in arcseconds for the returned image. None implies use the source pixel size.
-        source_pixel_size : float or None
-            Width of each pixel in arcseconds in the current image. None implies read from the file.
+        num_pixels : int, optional
+            Number of pixels to use in the output image. If not provided, the number will be loaded from the file
+        target_pixel_size : float, optional
+            Width of each pixel in arcseconds for the returned image. If not provided, the number will be loaded from the file
         hduis : list of int
             HDU indices of the images to load.
 
@@ -182,28 +148,23 @@ class Source:
             - num_pixels: width of the image(s)
             - target_pixel_size: width of each pixel in arcseconds
         """
-        image, num_pixels, target_pixel_size = _process_file(file_name, num_pixels, target_pixel_size, source_pixel_size, hduis)
+        image, num_pixels, target_pixel_size = _process_file(file_name, num_pixels, target_pixel_size, source_pixel_size, hdui)
         if len(image.shape) != 2:
             raise Exception("The source image must be dimension 2")
         assert(image.shape == (num_pixels, num_pixels))
 
-        return Source(image, num_pixels, target_pixel_size)
+        return Source(image, target_pixel_size)
 
-    def delta(num_pixels, pixel_size, store_info=False):
+    def delta(num_pixels, pixel_size):
         """
         Create a Source object representing a point source.
 
         Parameters
         ----------
-        use_nn : bool
-            True to use NN-reconstructed data, False for moments-reconstructed data.
         num_pixels : int
             Number of pixels in the output image. Odd integer recommended.
         pixel_size : float
             Width of each pixel in arcseconds.
-        store_info : bool, optional
-            If True, stores source and PSF info to speed up computations. Requires manual calls
-            to `invalidate_psf` and `invalidate_source_polarization`. Default is False.
         """
 
         image = np.zeros((num_pixels, num_pixels))
@@ -214,46 +175,36 @@ class Source:
             image[num_pixels//2+1, num_pixels//2] = 0.25
         else:
             image[num_pixels//2, num_pixels//2] = 1
-        return Source(image, num_pixels, pixel_size, store_info, is_point_source=True)
+        return Source(image, pixel_size, is_point_source=True)
     
-    def uniform(num_pixels, pixel_size, store_info=False):
+    def uniform(num_pixels, pixel_size):
         """
         Create a Source object representing a uniform background.
 
         Parameters
         ----------
-        use_nn : bool
-            True to use NN-reconstructed data, False for moments-reconstructed data.
         num_pixels : int
             Number of pixels in the output image. Odd integer recommended.
         pixel_size : float
             Width of each pixel in arcseconds.
-        store_info : bool, optional
-            If True, stores source and PSF info to speed up computations. Requires manual calls
-            to `invalidate_psf` and `invalidate_source_polarization`. Default is False.
         """
 
         image = np.ones((num_pixels, num_pixels))
         image /= np.sum(image)
-        return Source(image, num_pixels, pixel_size, store_info, is_uniform=True)
+        return Source(image, pixel_size, is_uniform=True)
     
-    def gaussian(num_pixels, pixel_size, sigma, store_info=False):
+    def gaussian(num_pixels, pixel_size, sigma):
         """
         Create a Gaussian-shaped Source object.
 
         Parameters
         ----------
-        use_nn : bool
-            True to use NN-reconstructed data, False for moments-reconstructed data.
         num_pixels : int
             Number of pixels in the output image. Odd integer recommended.
         pixel_size : float
             Width of each pixel in arcseconds.
         sigma : float
             Standard deviation of the Gaussian in arcseconds.
-        store_info : bool, optional
-            If True, stores source and PSF info to speed up computations. Requires manual calls
-            to `invalidate_psf` and `invalidate_source_polarization`. Default is False.
         """
 
         line = np.arange(num_pixels).astype(float) * pixel_size
@@ -262,24 +213,23 @@ class Source:
         gaussian = np.exp(-dist2 / (2 * sigma**2))
         gaussian /= np.sum(gaussian)
 
-        return Source(gaussian, num_pixels, pixel_size, store_info)
+        return Source(gaussian, pixel_size)
     
-    def __init__(self, image, source_size, pixel_size, store_info=False, is_point_source=False, is_uniform=False):
+    def __init__(self, image, pixel_size, is_point_source=False, is_uniform=False):
         if len(image.shape) != 2 or image.shape[0] != image.shape[1]:
             raise Exception("Source image must be two dimensional and square")
         if pixel_size > 5:
             logger.warning(f"Leakage predictions generally perform poorly for pixel sizes larger than 5 arcsec ({pixel_size} was provided). Predictions may be more reliable if smaller bins are used and rebinned later.")
         # Spreads contain the convolution with a psf
         self.source = image
-        self.source_size = source_size
+        self.source_size = len(image)
         self.pixel_size = pixel_size
         self.file_name = None
         self.psr_coord = None
-        self.store_info = store_info
         self.fit_rois = None
 
-        if self.source.shape != (source_size, source_size):
-            raise Exception(f"Your source image must have shape {source_size, source_size}")
+        if self.source.shape != (self.source_size, self.source_size):
+            raise Exception(f"Your source image must be square")
 
         self.pixel_centers = np.arange(len(image), dtype=float) * self.pixel_size # Arcsec
         self.pixel_centers -= np.max(self.pixel_centers) / 2
@@ -289,16 +239,17 @@ class Source:
         self.is_point_source = is_point_source
         self.is_uniform = is_uniform
 
-    def polarize_file(self, file_name):
+    def polarize_file(self, file_names):
         '''
-        Add a source polarization to the incoming photons. The provided file must either be a fits file with Q in hdul[1] and U in hdul[2], or a numpy array of shape (i, j, 2), where the last axis contains the q and u coordinates of the polarization. This automatically calls invalidate_source_polarization
-        '''
-
-        image = _process_file(file_name, self.source_size, self.pixel_size, None, [1,2], rescale=True)[0]
+        Add a source polarization to the incoming photons. 
         
-        assert(image.shape == (self.source_size, self.source_size, 2))
-        self.q_map = image[:,:,0]
-        self.u_map = image[:,:,1]
+        Parameters
+        ----------
+        filenames : (str, str)
+            A list of files containing normalized q and u maps.
+        '''
+        self.q_map = _process_file(file_names[0], self.source_size, self.pixel_size)[0]
+        self.u_map = _process_file(file_names[1], self.source_size, self.pixel_size)[0]
 
     def polarize_array(self, qu_map):
         '''
@@ -317,7 +268,7 @@ class Source:
 
     def convolve_psf(self, psf):
         '''
-        convolve this source image with the PSF and return the image. The provided PSF must be constructed with this source object.
+        Convolve this source image with the PSF and return the image. The provided PSF must be constructed with this source object.
         '''
         return _convolve(self.source, psf.psf)
 

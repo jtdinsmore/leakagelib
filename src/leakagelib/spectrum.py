@@ -3,7 +3,7 @@ from scipy.interpolate import interp1d
 from .settings import *
 from . import modulation
 
-class Spectrum:
+class DataSpectrum:
     def __init__(self, bin_centers, counts, weights):
         """
         Returns the spectrum object, which contains information about the distribution
@@ -35,7 +35,7 @@ class Spectrum:
         arf = load_arf()
         energies = np.arange(2, 8, 0.04)
         counts = arf(energies) * energies**(-pl_index)
-        return Spectrum(energies, counts, None)
+        return DataSpectrum(energies, counts, None)
     
     def weighted_average(self, array):
         '''
@@ -60,7 +60,7 @@ class Spectrum:
         '''
 
         bin_centers, counts = np.load(f)
-        return Spectrum(bin_centers, counts, None)
+        return DataSpectrum(bin_centers, counts, None)
 
     def get_avg_one_over_mu(self, use_nn):
         '''
@@ -84,7 +84,6 @@ class Spectrum:
             mus = modulation.get_mom_modf(self.bin_centers)
         return self.weighted_average(mus)
     
-
 class EnergyDependence:
     """
     A class that holds interpolators for the leakage parameters sigma_parallel, sigma_perp, and mu as a function of energy. Differences between detectors is not accounted for.
@@ -213,8 +212,8 @@ class EnergyDependence:
 
         Parameters
         ----------
-        spectrum : Spectrum
-            Spectrum object for the data in question. Either create one directly or use
+        spectrum : DataSpectrum
+            DataSpectrum object for the data in question. Either create one directly or use
             the `spectrum` attribute of an IXPEData object.
 
         Returns

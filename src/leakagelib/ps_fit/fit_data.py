@@ -14,18 +14,18 @@ class FitData:
         self.fixed_flux = {}
         qu_index = 0
         flux_index = 0
-        for i, source_name in enumerate(fit_settings.names):
-            if fit_settings.fixed_qu[i] is None:
+        for source_name in fit_settings.sources.keys():
+            if fit_settings.fixed_quf[source_name][0] is None:
                 self.qu_indices[source_name] = qu_index
                 qu_index += 1
             else:
-                self.fixed_qu[source_name] = fit_settings.fixed_qu[i]
+                self.fixed_qu[source_name] = (fit_settings.fixed_quf[source_name][0], fit_settings.fixed_quf[source_name][1])
 
-            if fit_settings.fixed_flux[i] is None:
+            if fit_settings.fixed_quf[source_name][2] is None:
                 self.flux_indices[source_name] = flux_index
                 flux_index += 1
             else:
-                self.fixed_flux[source_name] = fit_settings.fixed_flux[i]
+                self.fixed_flux[source_name] = fit_settings.fixed_quf[source_name][2]
         self.num_qu_params = qu_index*2
         self.num_flux_params = flux_index
 
@@ -35,7 +35,7 @@ class FitData:
         self.fixed_blur = fit_settings.fixed_blur
         self.num_sigma_params = 1 if self.fixed_blur is None else 0
 
-        self.extra_param_names = fit_settings.extra_param_names
+        self.extra_param_names = list(fit_settings.extra_params.keys())
 
     def param_to_value(self, params, param, source_name=None):
         """

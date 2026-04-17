@@ -5,7 +5,7 @@ import logging
 from .fit_data import FitData
 from .fit_result import FitResult, get_hess
 from .fit_properties import FitProperties
-from ..psf import PSF
+import emcee
 
 logger = logging.getLogger("leakagelib")
 
@@ -15,8 +15,6 @@ class Fitter:
 
     Parameters
     ----------
-    datas : list of IXPEData
-        List of :class:`IXPEData` objects. Does not need to be binned; only the events will be used.
     fit_settings : FitSettings
         FitSettings object containing the sources to be fitted.
     psfs : list of PSF, optional
@@ -36,7 +34,7 @@ class Fitter:
     def __init__(self, fit_settings, psfs=None):
         # Check provided values
         self.fit_props = FitProperties(fit_settings, psfs)
-        self.fit_data = FitData(self.fit_settings)
+        self.fit_data = FitData(fit_settings)
 
     def __repr__(self):
         out = "FITTED PARAMETERS:\n"
@@ -47,7 +45,7 @@ class Fitter:
         out += '\n'
         out += "FIXED PARAMETERS:\n"
         out += "Source\tParam\tValue\n"
-        for source_name in self.fit_settings.names:
+        for source_name in self.fit_props.guess_quf:
             if source_name in self.fit_data.fixed_qu:
                 out += f"{source_name}:\tq\t{self.fit_data.fixed_qu[source_name][0]}\n"
                 out += f"{source_name}:\tu\t{self.fit_data.fixed_qu[source_name][1]}\n"
@@ -55,7 +53,7 @@ class Fitter:
                 out += f"{source_name}:\tf\t{self.fit_data.fixed_flux[source_name]}\n"
         return out
 
-    def display_sources(self, fig_name=None, data_pixel_size=None):
+    def display_sources(self, data_pixel_size=None):
         """
         Display the sources for debugging purposes
 
@@ -72,54 +70,48 @@ class Fitter:
             Returns the figure object if fig_name was None, otherwise returns None.
         """
 
-        psfs = [PSF.sky_cal(data.det, self.fit_settings.sources[0], data.rotation) for data in self.datas]
+        n_images = len(self.fit_props.guess_quf)+1
+        data_key = self.fit_props.combos[0].data_key
 
-        import matplotlib.pyplot as plt
-        n_images = len(self.fit_settings.sources)+1
         fig, axs = plt.subplots(nrows=n_images, ncols=2, figsize=(6,3*n_images), sharex=True, sharey=True)
-        for ax_row, source, name in zip(axs, self.fit_settings.sources, self.fit_settings.names):
-            image = np.flip(np.log(1+source.source), axis=1)
-            convolved_image = np.zeros_like(image)
-            for psf in psfs:
-                convolved_image += source.convolve_psf(psf)
+        i = 0
+        for combo in self.fit_props.combos:
+            if combo.data_key != data_key: continue
+            ax_row = axs[i]
+            image = np.flip(np.log(1+combo.source.source), axis=1)
+            convolved_image = combo.source.convolve_psf(combo.psf)
             convolved_image = np.flip(np.log(1+convolved_image), axis=1)
-            ax_row[0].pcolormesh(source.pixel_centers, source.pixel_centers, image, vmin=0, cmap="viridis")
-            ax_row[1].pcolormesh(source.pixel_centers, source.pixel_centers, convolved_image, vmin=0, cmap="viridis")
-            ax_row[0].set_xlim(source.pixel_centers[-1], source.pixel_centers[0])
-            ax_row[0].set_ylim(source.pixel_centers[0], source.pixel_centers[-1])
-            ax_row[0].set_title(name)
-            ax_row[1].set_title(f"{name} w/ PSF")
+            pixel_centers = combo.source.pixel_centers
+            ax_row[0].pcolormesh(pixel_centers, pixel_centers, image, vmin=0, cmap="viridis")
+            ax_row[1].pcolormesh(pixel_centers, pixel_centers, convolved_image, vmin=0, cmap="viridis")
+            ax_row[0].set_xlim(pixel_centers[-1], pixel_centers[0])
+            ax_row[0].set_ylim(pixel_centers[0], pixel_centers[-1])
+            ax_row[0].set_title(combo.name)
+            ax_row[1].set_title(f"{combo.name} w/ PSF")
+            i += 1
 
         # Show ROI
-        roi = np.zeros_like(image)
-        for image in self.fit_settings._finalize_roi(None).values():
-            roi += image
-        axs[-1,0].pcolormesh(source.pixel_centers, source.pixel_centers, np.flip(roi, axis=1), vmin=0, cmap="viridis")
+        axs[-1,0].pcolormesh(pixel_centers, pixel_centers, np.flip(combo.roi, axis=1), vmin=0, cmap="viridis")
         axs[-1,0].set_aspect("equal")
         axs[-1,0].set_title("ROI")
 
         axs[-1,0].set_xlabel("x [arcsec]")
         axs[-1,0].set_ylabel("y [arcsec]")
 
-        delta = source.pixel_size if data_pixel_size is None else data_pixel_size
-        x_line = np.arange(np.min(-self.datas[0].evt_xs), np.max(-self.datas[0].evt_xs), delta)
-        y_line = np.arange(np.min(self.datas[0].evt_ys), np.max(self.datas[0].evt_ys), delta)
+        delta = (pixel_centers[1] - pixel_centers[0]) if data_pixel_size is None else data_pixel_size
+        x_line = np.arange(np.min(-combo.data.evt_xs), np.max(-combo.data.evt_xs), delta)
+        y_line = np.arange(np.min(combo.data.evt_ys), np.max(combo.data.evt_ys), delta)
         x_centers = (x_line[1:] + x_line[:-1]) / 2
         y_centers = (y_line[1:] + y_line[:-1]) / 2
-        image = np.zeros((len(x_line)-1, len(y_line)-1))
-        for data in self.datas:
-            image += np.histogram2d(-data.evt_xs, data.evt_ys, (x_line, y_line))[0]
+        image = np.histogram2d(-combo.data.evt_xs, combo.data.evt_ys, (x_line, y_line))[0]
         axs[-1,1].pcolormesh(x_centers, y_centers, np.transpose(image), cmap="viridis")
         axs[-1,1].set_title("Data")
 
         for ax in fig.axes:
             ax.set_aspect("equal")
 
-        if fig_name is None:
-            return fig
-        else:
-            fig.savefig(fig_name)
-
+        return fig
+    
     def _get_numerical_uncertainty(self, params):
         # Figure out which steps to use when computing the Hessian
         steps = []
@@ -131,9 +123,8 @@ class Fitter:
                 steps.append(1e-4)
             elif ptype == "sigma":
                 steps.append(1e-2)
-            elif ptype in self.fit_settings.extra_param_names:
-                index = self.fit_settings.extra_param_names.index(ptype)
-                steps.append(self.fit_settings.extra_param_data[index][2])
+            elif ptype in self.fit_props.extra_params:
+                steps.append(self.fit_props.extra_params[ptype][2])
             else:
                 raise Exception(f"Coord type {ptype} not recognized")
             
@@ -156,50 +147,47 @@ class Fitter:
 
         return cov
     
-    def plot(self, params=None, n_bins=101):
+    def plot(self, params=None, n_bins=101, det=1):
         """
         Plot the image predicted by the fitter vs the data
 
         Parameters
         ----------
-        filename : string
-            Name of the file to save the image to
         params : array-like, optional
             Parameter array to plot. Default: the starting values
         n_bins : int, optional
             Number of spatial bins to use
+        det
+
+        Returns
+        -------
+        The matplotlib Figure
         """
         if params is None:
             params = self._get_start_params()[0]
 
-        data = self.datas[0]
-        psf = self.psfs[0]
-        max_r = np.max(np.sqrt(data.evt_xs**2 + data.evt_ys**2))
+        evt_probs = None
+        for combo in self.fit_props.combos:
+            if combo.data.det != det: continue
+            if evt_probs is None:
+                evt_probs = np.zeros_like(combo.data.evt_xs)
 
-        evt_probs = np.zeros_like(data.evt_xs)
-        for source_index, source in enumerate(self.fit_settings.sources):
-            source_name = self.fit_settings.names[source_index]
-            if data.det not in self.fit_settings.detectors[source_index]:
-                continue
-            if self.fit_settings.obs_ids[source_index] is not None and (data.obs_id not in self.fit_settings.obs_ids[source_index]):
-                continue
+            f = self.fit_data.param_to_value(params, "f", combo.name)
+            combo.polarize_net((0, 0))
+            evt_probs += combo.get_event_p_r_given_phi() * f
 
-            # Get the parameters and use the prior
-            f = self.fit_data.param_to_value(params, "f", source_name)
-            source.polarize_net((0, 0))
-            evt_probs += source.get_event_p_r_given_phi(psf, data, overwrite_mus=data.evt_mus) * f
-            
-        mask = data.evt_bg_chars < 0.2
+        max_r = np.max(np.sqrt(combo.data.evt_xs**2 + combo.data.evt_ys**2))
+        mask = combo.data.evt_bg_chars < 0.2
 
         fig, (ax1, ax2) = plt.subplots(ncols=2, sharex=True, sharey=True)
         line = np.linspace(-max_r, max_r, n_bins)
         
-        counts = np.histogram2d(data.evt_xs[mask], data.evt_ys[mask], (line, line))[0].astype(float)
-        pred = np.histogram2d(data.evt_xs[mask], data.evt_ys[mask], (line, line), weights=evt_probs[mask])[0].astype(float)/counts
+        counts = np.histogram2d(combo.data.evt_xs[mask], combo.data.evt_ys[mask], (line, line))[0].astype(float)
+        pred = np.histogram2d(combo.data.evt_xs[mask], combo.data.evt_ys[mask], (line, line), weights=evt_probs[mask])[0].astype(float)/counts
         counts /= np.nanmax(counts) * 0.005
         image = np.log(1+counts)
         ax1.pcolormesh(line, line, np.transpose(image), vmin=0)
-        ax1.set_title(f"Data (DU {data.det})")
+        ax1.set_title(f"Data (DU {det})")
         
         pred[~np.isfinite(pred)] = 0
         pred /= np.nanmax(pred) * 0.005
@@ -234,12 +222,11 @@ class Fitter:
         # Get the uncertainty
         cov = self._get_numerical_uncertainty(results.x)
 
-        return FitResult(results.x, -results.fun, results.message, cov, self.fit_data, self.fit_settings)
+        return FitResult(results.x, -results.fun, results.message, cov, self.fit_data, self.fit_props)
 
-    def fit_mcmc(self, n_walkers=16, n_iter=5_000, burnin=1_000, save_corner="corner.png",
-                 save_samples=None, progress=True):
+    def fit_mcmc(self, n_walkers=16, n_iter=5_000, save_samples=None, progress=True):
         """
-        Fit using an MCMC (via the `emcee` package).
+        Fit using an MCMC (via the `emcee` package). You must install emcee and corner to use this package.
 
         Parameters
         ----------
@@ -247,11 +234,6 @@ class Fitter:
             Number of walkers to use for the MCMC. Default is 16.
         n_iter : int, optional
             Number of iterations to run the MCMC for. Default is 5000.
-        burnin : int, optional
-            Number of points to discard. Default is 1000.
-        save_corner : str or None, optional
-            File path to save the corner plot. Default is "corner.png". Set to None to skip saving.
-            Requires the `corner` package.
         save_samples : str or None, optional
             File path to save the MCMC samples in h5 format. Recommended for advanced analysis.
             Default is None. WARNING: emcee appends to the file if it exists; delete first if you wish to redo a run.
@@ -268,62 +250,29 @@ class Fitter:
         - For detailed manipulation or custom corner plots, use `save_samples`. You can then discard the FitData object and operate on the saved samples.
         """
 
-        import emcee
         x0, bounds = self._get_start_params()
-        sigmas = self._get_emcee_sigmas()
-        initial_state = [x0 + np.random.randn(len(x0)) * sigmas for _ in range(n_walkers)]
-
-        def log_prob_fn(params):
-            for i in range(len(params)):
-                if bounds[i][0] is not None and params[i] < bounds[i][0]: return -np.inf
-                if bounds[i][1] is not None and params[i] > bounds[i][1]: return -np.inf
-            return self.log_prob(params)
-
+        sigmas = [(b[1] - b[0]) / 6 for b in bounds]
+        initial_state = np.array([x0 + np.random.randn(len(x0))*sigmas for _ in range(n_walkers)])
+        while True:
+            bad_mask = np.zeros(len(initial_state), bool)
+            for i in range(len(bounds)):
+                bad_mask |= initial_state[:,i] < bounds[i][0]
+                bad_mask |= initial_state[:,i] > bounds[i][1]
+            if np.sum(bad_mask) == 0:
+                break
+            initial_state[bad_mask,:] = np.array([x0 + np.random.randn(len(x0))*sigmas for _ in range(np.sum(bad_mask))])
+            
         if save_samples is not None:
             backend = emcee.backends.HDFBackend(save_samples)
         else:
             backend = None
-        sampler = emcee.EnsembleSampler(n_walkers, len(x0), log_prob_fn, backend=backend)
+        sampler = emcee.EnsembleSampler(n_walkers, len(x0), self.log_prob, backend=backend)
         sampler.run_mcmc(initial_state, n_iter, progress=progress)
 
-        samples = sampler.get_chain()[:burnin,:,:].reshape(-1, len(x0))
-        log_likes = sampler.get_log_prob()[:burnin,:].reshape(-1)
+        samples = sampler.get_chain().reshape(-1, len(x0))
+        log_likes = sampler.get_log_prob().reshape(-1)
 
-        if save_corner is not None:
-            import corner
-            labels = []
-            for i in range(len(x0)):
-                param, name = self.fit_data.index_to_param(i)
-                labels.append(f"${param}_\\mathrm{{{name}}}$")
-            fig = corner.corner(samples, labels=labels, show_titles=True)
-            fig.savefig(save_corner)
-
-        return self._load_samples(samples, log_likes)
-    
-    def _load_samples(self, samples, log_likes):
-        """
-        return a FitResult for the provided MCMC samples.
-        """
-
-        best_index = np.argmin(log_likes)
-        best_param = samples[best_index]
-        best_like = log_likes[best_index]
-        cov = np.cov(np.transpose(samples))
-        return FitResult(best_param, best_like, "MCMC fit", cov, self.fit_data, self.fit_settings)
-
-    def _load_psfs(self, psfs):
-        # Load PSFs
-        if psfs is not None:
-            if len(psfs) != len(self.datas):
-                raise Exception("You must pass the same number of PSFs as detectors")
-            self.psfs = psfs
-        else:
-            self.psfs = []
-            for data in self.datas:
-                psf = PSF.sky_cal(data.det, self.fit_settings.sources[0], data.rotation)
-                if self.fit_settings.fixed_blur is not None and self.fit_settings.fixed_blur != 0:
-                    psf.blur(self.fit_settings.fixed_blur)
-                self.psfs.append(psf)
+        return FitResult.from_samples(samples, log_likes, self.fit_data, self.fit_props)
 
     def _get_start_params(self):
         """
@@ -333,60 +282,30 @@ class Fitter:
         """
         x0 = []
         bounds = []
-        first_source_name = self.fit_settings.names[0]
 
         for i in range(self.fit_data.length()):
             param, source_name = self.fit_data.index_to_param(i)
-            if source_name is not None:
-                source_index = self.fit_settings.names.index(source_name)
-            else:
-                source_name = None
-
             if param == "q":
-                x0.append(0)
-                if self.fit_settings.guess_qu[source_index][0] is not None:
-                    x0[-1] = self.fit_settings.guess_qu[source_index][0]
+                x0.append(self.fit_props.guess_quf[source_name][0])
                 bounds.append((-1, 1))
-
             elif param == "u":
-                x0.append(0)
-                if self.fit_settings.guess_qu[source_index][1] is not None:
-                    x0[-1] = self.fit_settings.guess_qu[source_index][1]
+                x0.append(self.fit_props.guess_quf[source_name][1])
                 bounds.append((-1, 1))
-
             elif param == "f":
-                x0.append(1)
+                x0.append(self.fit_props.guess_quf[source_name][2])
                 bounds.append((0, 100))
-                if self.fit_settings.guess_f[source_index] is not None:
-                    x0[-1] = self.fit_settings.guess_f[source_index]
-
             elif param == "sigma":
                 x0.append(10)
                 bounds.append((0, 30))
-
-            elif param in self.fit_settings.extra_param_names:
-                index = self.fit_settings.extra_param_names.index(param)
-                x0.append(self.fit_settings.extra_param_data[index][0])
-                bounds.append(self.fit_settings.extra_param_data[index][1])
+            elif param in self.fit_props.extra_params:
+                x0.append(self.fit_props.extra_params[param][0])
+                bounds.append(self.fit_props.extra_params[param][1])
 
             else:
                 raise Exception(f"Parameter {param} not handled")
             
         return x0, bounds
     
-    def _get_emcee_sigmas(self):
-        # Returns a list of standard deviations to use to offset walkers
-        sigmas = []
-        for i in range(self.fit_data.length()):
-            param, source_name = self.fit_data.index_to_param(i)
-            if param == "q":
-                sigmas.append(0.3)
-            if param == "u":
-                sigmas.append(0.3)
-            if param == "f":
-                sigmas.append(0.3)
-        return sigmas
-
     def log_prob(self, params, prior=True, return_array=False):
         """
         Get the log posterior of the Fitter (log_like + log_prior).
@@ -404,11 +323,12 @@ class Fitter:
         """
 
         # Blur the PSF
+        
         index = self.fit_data.param_to_index("sigma")
         if index is not None:
             blur = params[index]
-            for psf in self.psfs:
-                psf.blur(blur)
+            for combo in self.fit_props.combos:
+                combo.blur_psf(blur)
 
         # Get the log prob
         return self._raw_log_prob(params, prior, return_array)
@@ -431,9 +351,9 @@ class Fitter:
             f = self.fit_data.param_to_value(params, "f", combo.name)
             if prior:
                 if q**2 + u**2 > 1:
-                    return -1e10 * (1 + q**2 + u**2 - 1)
+                    return -1e8 * (q**2 + u**2)
                 if f < 0:
-                    return -1e10 * (1 - f)
+                    return -1e8 * (101 - f)
                 
             # Set polarization
             if combo.sweeps is not None:
@@ -443,13 +363,14 @@ class Fitter:
                 q = new_q
                 u = new_u
             if combo.model_fn is not None:
-                q, u = self.model_fn(combo.data.evt_times, self.fit_data, params)
+                q, u = combo.model_fn(combo.data.evt_times, self.fit_data, params)
             combo.polarize_net((np.mean(q), np.mean(u)))
 
             probs = combo.get_log_prob(q, u)
             
             if combo.data_key not in evt_probs:
-                evt_probs[combo.data_key] = np.zeros(len(combo.data.evt_xs))
+                evt_probs[combo.data_key] = np.zeros(len(combo.data))
+                flux_norms[combo.data_key] = 0
             evt_probs[combo.data_key] += probs * f
             flux_norms[combo.data_key] += f
 
@@ -470,7 +391,7 @@ class Fitter:
                     if np.any([np.any(data.evt_bg_chars==1) for data in self.datas]):
                         problem = "You have events with bg_prob=1 in your data set, and the particle background flux is zero. This probably caused the problem. Try removing these events"
             if problem == "":
-                for name in self.fit_settings.names:
+                for name in self.fit_props.guess_quf:
                     if self.fit_data.param_to_index("f", name) is not None and params[self.fit_data.param_to_index("f", name)] == 0:
                         problem = f"Your flux for source {name} is equal to zero."
                     
