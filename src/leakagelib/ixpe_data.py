@@ -44,7 +44,7 @@ class IXPEData:
         **Do not manually edit** the evt_xs, evt_ys, evt_qs, evt_us, evt_pis, or evt_energies fields. `IXPEData` stores them to increase computational speed and editing them may cause the `IXPEData` object to go out of sync.
     """
 
-    def load_all_detectors(obs_id, event_dir=None):
+    def load_all_detectors(obs_id, event_dir="event_l2"):
         '''
         Load all detectors corresponding to a specific observation ID.
 
@@ -53,8 +53,7 @@ class IXPEData:
         obs_id : str or None, optional
             The observation ID to load. If `None`, loads whatever data is pointed to by `prepath`.
         event_dir : str or None, optional
-            Name of the directory containing the event files. Default (`None`) is interpreted
-            as `event_l2` if `source` indicates Moments data, and `event_nn` if it indicates NN results.
+            Name of the directory containing the event files. Default is event_l2
         energy_cut : tuple of float, optional
             Event energy range in keV. Default is (2, 8).
 
@@ -73,7 +72,7 @@ class IXPEData:
             
         # Could not find the file. Print out diagnostic information
         for (prepath, reason) in zip(DATA_DIRECTORIES, reasons):
-            logger.warning(f"Checking {prepath}: {reason}")
+            logger.warning(f"Checking {prepath}: {reason[1]}")
         raise Exception(f"Could not find any observations with ID {obs_id}")
     
     def load_all_detectors_with_path(prepath, obs_id=None, event_dir="event_l2"):

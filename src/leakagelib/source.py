@@ -61,6 +61,8 @@ def _process_file(file_name, num_pixels, target_pixel_size, hdui=0, rescale=Fals
         Width of each pixel in arcseconds for the returned image. None implies use the source pixel size.
     hdui : int
         HDU index of the images to load.
+    rescale : bool, optional
+        If the image needs to be zoomed, set to True to conserve flux? Default: False
 
     Returns
     -------
@@ -75,6 +77,7 @@ def _process_file(file_name, num_pixels, target_pixel_size, hdui=0, rescale=Fals
         if image.shape[0] != image.shape[1]:
             raise Exception("LeakageLib only deals with square images")
         
+        # Zoom
         source_pixel_size = hdul[hdui].header["CDELT2"] * 3600 # Arcsec
         if target_pixel_size is None:
             target_pixel_size = source_pixel_size
@@ -83,7 +86,6 @@ def _process_file(file_name, num_pixels, target_pixel_size, hdui=0, rescale=Fals
             image = integrate_zoom(hdul[hdui].data, zoom_ratio, force_odd=True)
             if rescale:
                 image *= zoom_ratio**2
-    image = np.transpose(image, (1,2,0))
 
     # Change the image size to match requirements
     if num_pixels is None:
@@ -98,13 +100,9 @@ def _process_file(file_name, num_pixels, target_pixel_size, hdui=0, rescale=Fals
             ]
         elif len(image) < num_pixels:
             logger.warning("Zero padding the source image")
-            if len(image.shape) == 2:
-                image = _pad_image(image, num_pixels)
-            elif len(image.shape) == 3:
-                new_image = []
-                for last_index in range(image.shape[-1]):
-                    new_image.append(_pad_image(image[:,:,last_index], num_pixels))
-                image = np.transpose(new_image, (1,2,0))
+            image = _pad_image(image, num_pixels)
+
+    image = np.flip(image, axis=1)
     
     return image, num_pixels, target_pixel_size
 
@@ -148,7 +146,7 @@ class Source:
             - num_pixels: width of the image(s)
             - target_pixel_size: width of each pixel in arcseconds
         """
-        image, num_pixels, target_pixel_size = _process_file(file_name, num_pixels, target_pixel_size, source_pixel_size, hdui)
+        image, num_pixels, target_pixel_size = _process_file(file_name, num_pixels, target_pixel_size, hdui, rescale=True)
         if len(image.shape) != 2:
             raise Exception("The source image must be dimension 2")
         assert(image.shape == (num_pixels, num_pixels))
@@ -271,79 +269,3 @@ class Source:
         Convolve this source image with the PSF and return the image. The provided PSF must be constructed with this source object.
         '''
         return _convolve(self.source, psf.psf)
-
-    def compute_leakage(self, psf, spectrum, energy_dependence=None, normalize=False):
-        """
-        Get the Q and U maps for this source (unnormalized by default), given the PSF and spectrum.
-
-        Parameters
-        ----------
-        psf : PSF
-            PSF for the detector. Sky-calibrated PSFs are recommended.
-        spectrum : Spectrum
-            Spectrum of the data, obtainable from an IXPEData object.
-        energy_dependence : callable, optional
-            Function specifying the energy dependence of sigma_perp and sigma_parallel.
-            Defaults to simulation-measured dependences for NN or Mom depending on this Source.
-        normalize : bool, optional
-            If True, return normalized Stokes q and u maps. Default is False.
-
-        Returns
-        -------
-        tuple (array-like, array-like, array-like)
-            Three images, i, q, u, of leakage patterns.
-        """
-
-        if energy_dependence is None:
-            energy_dependence = EnergyDependence.default(self.use_nn)
-        params = energy_dependence.get_params(spectrum)
-
-        if WARN and params["sigma_minus"] < 0:
-            logger.warning("Sigma perp should not be bigger than sigma parallel squared.")
-
-        if not self.store_info or self.d_i_i[psf.det-1] is None:
-            self._prepare_psf(psf)
-        if not self.store_info or self.d_i_q[psf.det-1] is None:
-            self._prepare_source_polarization(psf)
-
-        # See the comment in spectrum.py that k_cross is = -k_minus / 4 if k_both=0.
-
-        i = (
-            + self.d_i_i[psf.det-1]
-            + params["sigma_plus"] * self.d_zs_i[psf.det-1]
-            + params["k_plus"] * self.d_zk_i[psf.det-1] 
-            + params["mu_sigma_minus"] * (self.d_qs_q[psf.det-1] + self.d_us_u[psf.det-1]) / 2
-            + params["mu_k_minus"] * (self.d_qk_q[psf.det-1] + self.d_uk_u[psf.det-1]) / 2
-        )
-        q = (
-            + params["mu"] * self.d_i_q[psf.det-1]
-            + params["sigma_minus"] * self.d_qs_i[psf.det-1]
-            + params["k_minus"] * self.d_qk_i[psf.det-1]
-            + params["mu_sigma_plus"] * self.d_zs_q[psf.det-1]
-            + params["mu_k_plus"] * self.d_zk_q[psf.det-1]
-            + params["mu_k_cross"] * (self.d_xk_q[psf.det-1] + self.d_yk_u[psf.det-1]) / 2
-        )
-        u = (
-            + params["mu"] * self.d_i_u[psf.det-1]
-            + params["sigma_minus"] * self.d_us_i[psf.det-1]
-            + params["k_minus"] * self.d_uk_i[psf.det-1]
-            + params["mu_sigma_plus"] * self.d_zs_u[psf.det-1]
-            + params["mu_k_plus"] * self.d_zk_u[psf.det-1]
-            + params["mu_k_cross"] * (self.d_yk_q[psf.det-1] - self.d_xk_u[psf.det-1]) / 2
-        )
-
-        q[np.isnan(q)] = 0
-        u[np.isnan(u)] = 0
-
-        if normalize:
-            q /= i
-            u /= i
-
-        return (i, q, u)
-
-    def divide_by_mu(self, q, u, spectrum):
-        '''
-        Divide by the detector modulation factor to get the "true" Q and U images. You can pass in either normalized or unnormalized q and u. The spectrum is used to compute the average polarization weight.
-        '''
-        one_over_mu = spectrum.get_avg_one_over_mu(self.use_nn)
-        return q * one_over_mu, u * one_over_mu
