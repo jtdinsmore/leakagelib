@@ -93,11 +93,12 @@ class FitResult:
         
         Returns
         -------
-            return type
-        TODO
+            FitResult
+            
+        Returns a normal FitResult, but with samples and log likelihoods stored in the `samples` and `log_likes` fields. These can be manipulated with the `burnin` function and displayed with the `display_corner` and `display_samples` functions.
         """
         message = "MCMC fit"
-        best_index = np.argmin(log_likes)
+        best_index = np.argmax(log_likes)
         best_param = samples[best_index]
         best_like = log_likes[best_index]
         cov = np.cov(np.transpose(samples))
@@ -110,18 +111,22 @@ class FitResult:
     
     def burnin(self, burnin):
         """
+        Remove the first few samples of an MCMC fit. This function can be called multiple times. Each new call, the previously removed samples will be added back in.
         """
         if self.samples is None:
             raise Exception("Burnin can only be applied to an MCMC fit result")
         self.sample_mask = np.arange(len(self.log_likes)) > burnin
 
-        best_index = np.argmin(self.log_likes[self.sample_mask])
+        best_index = np.argmax(self.log_likes[self.sample_mask])
         self.best_like = self.log_likes[self.sample_mask][best_index]
         best_param = self.samples[self.sample_mask][best_index]
         cov = np.cov(np.transpose(self.samples[self.sample_mask]))
         self.get_uncertainty_information(best_param, cov)
 
     def display_corner(self):
+        """
+        Show a corner plot of the MCMC results
+        """
         if self.samples is None:
             raise Exception("Corner plots can only be made for an MCMC fit result")
         
@@ -132,6 +137,9 @@ class FitResult:
         return fig
 
     def display_samples(self):
+        """
+        Display the samples from an MCMC fit. This is useful for working out the appropriate burnin length to remove
+        """
         fig, axs = plt.subplots(nrows=len(self.samples[0]), sharex=True)
         labels = []
         for param, name in self.parameter_names:
