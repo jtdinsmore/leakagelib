@@ -28,12 +28,12 @@ class IXPEData:
 
     Notes
     -----
-    To construct an :class:`IXPEData`, you should use the :meth:`IXPEData.load_all_detectors` or :meth:`IXPEData.load_all_detectors_with_path` functions, or this constructor.
+    To construct an :class:`leakagelib.IXPEData`, you should use the :meth:`leakagelib.IXPEData.load_all_detectors` or :meth:`leakagelib.IXPEData.load_all_detectors_with_path` functions, or this constructor.
 
     Event fields
     ------------
     evt_xs, evt_ys, evt_qs, evt_us, evt_energies, evt_pis, evt_times, evt_ws, evt_mus, evt_bg_chars, evt_exposures : array-like
-        Properties of the individual events. **Positions are measured in arcseconds**. q and u are the IXPE-standard 2cos(psi) and 2sin(psi). Energies are measured in keV. Times are measured in seconds since MJDREF. To retain events, use the :meth:`IXPEData.retain` or :meth:`IXPEData.retain_region` methods.
+        Properties of the individual events. **Positions are measured in arcseconds**. q and u are the IXPE-standard 2cos(psi) and 2sin(psi). Energies are measured in keV. Times are measured in seconds since MJDREF. To retain events, use the :meth:`leakagelib.IXPEData.retain` or :meth:`leakagelib.IXPEData.retain_region` methods.
         
 
     offsets : tuple of float
@@ -290,8 +290,8 @@ class IXPEData:
         inaccurate off-axis.
         """
 
-        region = Region.load(regfile)
-        mask = region.check_inside_absolute((self.evt_xs - self.offsets[0])/IXPE_PIXEL_SIZE, (self.evt_ys - self.offsets[1])/IXPE_PIXEL_SIZE)
+        region = Region(regfile, assert_format="image")
+        mask = region.contains((self.evt_xs - self.offsets[0])/IXPE_PIXEL_SIZE, (self.evt_ys - self.offsets[1])/IXPE_PIXEL_SIZE)
         if exclude:
             mask = ~mask
 
@@ -390,7 +390,7 @@ class IXPEData:
             coly = hdul[1].columns["Y"]
             stretch = np.cos(coly.coord_ref_value * np.pi / 180)
             xs = ((ras - colx.coord_ref_value) / colx.coord_inc * stretch + colx.coord_ref_point) * IXPE_PIXEL_SIZE
-            ys = ((ras - coly.coord_ref_value) / coly.coord_inc + coly.coord_ref_point) * IXPE_PIXEL_SIZE
+            ys = ((decs - coly.coord_ref_value) / coly.coord_inc + coly.coord_ref_point) * IXPE_PIXEL_SIZE
 
         self.expmap = RegularGridInterpolator((xs, ys), np.transpose(image), bounds_error=False, fill_value=0)
         self.evt_exposures = self.expmap(self.evt_xs-offset[0], self.evt_ys-offset[0])

@@ -313,7 +313,7 @@ class Fitter:
         Arguments
         ---------
         params : array_like
-            List of parameters. If you are calling this function manually, you should order the parameters in the same order as the :attr:`FitResult.parameter_names` attribute of the fit result.
+            List of parameters. If you are calling this function manually, you should order the parameters in the same order as the :attr:`leakagelib.FitResult.parameter_names` attribute of the fit result.
 
         prior : bool
             set to True to include the priors, which are all finite uniform.

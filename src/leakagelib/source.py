@@ -108,7 +108,7 @@ def _process_file(file_name, num_pixels, target_pixel_size, hdui=0, rescale=Fals
 
 class Source:
     """
-    Load a Source object from a 2D array. If you want to load a point source, use :meth:`Source.delta`. To load a Gaussian-shaped source, use :meth:`Source.gaussian`. To load a uniform source, use :meth:`Source.uniform`.
+    Load a Source object from a 2D array. If you want to load a point source, use :meth:`leakagelib.Source.delta`. To load a Gaussian-shaped source, use :meth:`leakagelib.Source.gaussian`. To load a uniform source, use :meth:`leakagelib.Source.uniform`.
 
     Parameters
     ----------

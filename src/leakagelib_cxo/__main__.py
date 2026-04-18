@@ -18,10 +18,10 @@ def check_args(args):
     else:
         logger.warning("Exposure map corrections will not be made because you did not pass an exposure map")
         
-    if not os.path.exists(args.ixpe_arf):
-        raise Exception(f"{args.ixpe_arf} does not exist")
     if not os.path.exists(args.ixpe_evt):
         raise Exception(f"{args.ixpe_evt} does not exist")
+    if not os.path.exists(args.ixpe_arf):
+        raise Exception(f"{args.ixpe_arf} does not exist")
 
     if float(args.elow) >= float(args.ehigh):
         raise Exception("Your low energy must be smaller than your high energy")
@@ -45,13 +45,15 @@ if __name__ == "__main__":
                 description='Creates a CXO image, adjusted to the IXPE band. Before running this command, you should use the ciao tools merge_obs and mkwarf to create a merged image (including an exposure map) and an arf for each observaton. These are required as inputs for this script.')
     parser.add_argument('--cxo-evt', nargs='+', required=True, help="List of Chandra event files to use")
     parser.add_argument('--cxo-arf', nargs='+', required=True, help="List of Chandra ARFs to use")
-    parser.add_argument('--ixpe-evt', required=True, help="IXPE event file (only one is necessary, for simplicity. Try DU1)")
+    parser.add_argument('--ixpe-evt', required=True, help="IXPE event file (only one is necessary. Try DU1)")
     parser.add_argument('--ixpe-arf', required=True, help="IXPE ARF (only one is necessary, for simplicity. Try DU1)")
     parser.add_argument('--expmap', help="Chandra merged observation ARF (Optional)")
     parser.add_argument("--output", required=True, help="Name of the output file")
     parser.add_argument("--width", help="Width of the image, in arcseconds. Default: as big as the CXO image (Optional)")
     parser.add_argument("--elow", default=2, help="Low end of the energy range (keV). Default: 2")
     parser.add_argument("--ehigh", default=8, help="High end of the energy range (keV). Default: 8")
+    parser.add_argument("--centerx", default=300, help="IXPE pixel on which the image will be centered in the x direction")
+    parser.add_argument("--centery", default=300, help="IXPE pixel on which the image will be centered in the y direction")
     parser.add_argument("--reg-src", help="Source region. Should be saved in CIAO format with IXPE physical coordinates (Optional)")
     parser.add_argument("--reg-bkg", help="Background region. Should be saved in CIAO format with IXPE physical coordinates (Optional)")
     parser.add_argument("--clobber", action=argparse.BooleanOptionalAction, help="Overwrite files")
@@ -63,7 +65,7 @@ if __name__ == "__main__":
 
     print(f"""Image saved to {args.output}. To use it, load the source with LeakageLib using the following code:
           
-from leakagelib_cxo import cxo_source
-source = cxo_source("{args.output}", use_nn)
+import leakagelib
+source = leakagelib.Source.load_file("{args.output}")
 
 This gives a leakagelib.Source object, which you can use as a source in your LeakageLib fit.""")
