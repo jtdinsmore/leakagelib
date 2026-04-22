@@ -1,14 +1,13 @@
 import numpy as np
-import os, logging
-from scipy.linalg import pinvh
+import os, sys, logging
 from scipy.interpolate import RegularGridInterpolator
+from scipy.optimize import fsolve
 from astropy.io import fits
 from astropy.wcs import WCS
 from ixpeobssim.irf import load_vign
-from .spectrum import Spectrum
 from .region import Region
 from .settings import DATA_DIRECTORIES
-from .modulation import *
+from .modulation import get_mom_modf, get_nn_modf
 
 IXPE_PIXEL_SIZE = 2.6 # arcsec
 
@@ -29,50 +28,34 @@ class IXPEData:
 
     Notes
     -----
-    To construct an :class:`IXPEData`, you should use the :meth:`IXPEData.load_all_detectors` or :meth:`IXPEData.load_all_detectors_with_path` functions, or this constructor.
+    To construct an :class:`leakagelib.IXPEData`, you should use the :meth:`leakagelib.IXPEData.load_all_detectors` or :meth:`leakagelib.IXPEData.load_all_detectors_with_path` functions, or this constructor.
 
     Event fields
     ------------
     evt_xs, evt_ys, evt_qs, evt_us, evt_energies, evt_pis, evt_times, evt_ws, evt_mus, evt_bg_chars, evt_exposures : array-like
-        Properties of the individual events. Positions are measured in arcseconds; q and u are the IXPE-standard 2cos(psi) and 2sin(psi).
-        To retain events, use the :meth:`IXPEData.retain` or :meth:`IXPEData.retain_region` methods.
-        **Do not manually edit these fields**; `IXPEData` stores them to increase computational speed and editing them may cause the `IXPEData` object to go out of sync. Exceptions are evt_times, evt_ws, evt_mus, evt_bg_chars, and evt_exposures.
+        Properties of the individual events. **Positions are measured in arcseconds**. q and u are the IXPE-standard 2cos(psi) and 2sin(psi). Energies are measured in keV. Times are measured in seconds since MJDREF. To retain events, use the :meth:`leakagelib.IXPEData.retain` or :meth:`leakagelib.IXPEData.retain_region` methods.
+        
 
     offsets : tuple of float
         Location of the current origin in physical coordinates. Defaults to (0, 0).
 
-    Image fields
-    ------------
-    i, q, u, n, w2, cov_inv : array-like
-        Images of the observation, constructed with the same pixels as the source provided upon initialization.
-        These fields exist only if `IXPEData` was constructed with `bin=True`.
-        To recreate these images, call the :meth:`IXPEData._bin_data` method.
-
-    pixel_centers, pixel_edges : array-like
-        Centers and edges of pixels in the image.
+    Notes
+    -----
+        **Do not manually edit** the evt_xs, evt_ys, evt_qs, evt_us, evt_pis, or evt_energies fields. `IXPEData` stores them to increase computational speed and editing them may cause the `IXPEData` object to go out of sync.
     """
 
-    def load_all_detectors(source, obs_id, event_dir=None, energy_cut=(2, 8), weight_image=False, bin=False):
+    def load_all_detectors(obs_id, event_dir="event_l2"):
         '''
         Load all detectors corresponding to a specific observation ID.
 
         Parameters
         ----------
-        source : Source
-            A `Source` object used to set the size of the `IXPEData` images. The actual
-            source flux is not read, only whether the source is NN or Mom and the shape
-            of the image. If you do not wish to bin the data, you can pass `Source.no_image`.
         obs_id : str or None, optional
             The observation ID to load. If `None`, loads whatever data is pointed to by `prepath`.
         event_dir : str or None, optional
-            Name of the directory containing the event files. Default (`None`) is interpreted
-            as `event_l2` if `source` indicates Moments data, and `event_nn` if it indicates NN results.
+            Name of the directory containing the event files. Default is event_l2
         energy_cut : tuple of float, optional
             Event energy range in keV. Default is (2, 8).
-        weight_image : bool, optional
-            If `True`, weight the Q and U images by event weights.
-        bin : bool, optional
-            If `False`, do not bin the data. Ignored if `source` was created with `Source.no_image`.
 
         Returns
         -------
@@ -82,28 +65,23 @@ class IXPEData:
 
         reasons = []
         for prepath in DATA_DIRECTORIES:
-            result, reason = IXPEData.load_all_detectors_with_path(source, prepath, obs_id, event_dir, energy_cut, weight_image, bin)
-            reasons.append(reason)
-            if result is not None:
-                return result
+            try:
+                return IXPEData.load_all_detectors_with_path(prepath, obs_id, event_dir)
+            except:
+                reasons.append(sys.exc_info())
             
         # Could not find the file. Print out diagnostic information
         for (prepath, reason) in zip(DATA_DIRECTORIES, reasons):
-            logger.info(f"Checking {prepath}: {reason}")
+            logger.warning(f"Checking {prepath}: {reason[1]}")
         raise Exception(f"Could not find any observations with ID {obs_id}")
     
-
-    def load_all_detectors_with_path(source, prepath, obs_id=None, event_dir=None, energy_cut=(2, 8), weight_image=False, bin=False):
+    def load_all_detectors_with_path(prepath, obs_id=None, event_dir="event_l2"):
         '''
         Load all detectors from a specific directory, without using the default directories
         stored in the LeakageLib settings file.
 
         Parameters
         ----------
-        source : Source
-            A `Source` object used to set the size of the `IXPEData` images. The actual
-            source flux is not read; only whether the source is NN or Mom and the shape
-            of the image. To skip binning, pass `Source.no_image`.
         prepath : str, optional
             If `obs_id` is not specified, `prepath` points to the folder containing the data
             for this observation. If `obs_id` is specified, `prepath` should point to the
@@ -115,36 +93,24 @@ class IXPEData:
             for Moments data, or `event_nn` for NN results, based on `source`.
         energy_cut : tuple of float, optional
             Event energy range in keV. Default is (2, 8).
-        weight_image : bool, optional
-            If `True`, weight the Q and U images by event weights.
-        bin : bool, optional
-            If `False`, do not bin the data. Ignored if `source` was created with `Source.no_image`.
 
         Returns
         -------
-        (List[IXPEData], string)
-            Returns a tuple with two items: a list of `IXPEData` objects for all three detectors, and a string. If there was a problem loading the files, then the first entry is None and the string contains the error message. Otherwise the string is empty.
+        List[IXPEData]
+            Returns a list of `IXPEData` objects for all three detectors.
         '''
 
-        if event_dir is None:
-            if source.use_nn:
-                event_dir_to_use = "event_nn"
-            else:
-                event_dir_to_use = "event_l2"
-        else:
-            event_dir_to_use = event_dir
-
         if obs_id is not None:
-            event_directory = f"{prepath}/{obs_id}/{event_dir_to_use}"
+            event_directory = f"{prepath}/{obs_id}/{event_dir}"
             hk_directory = f"{prepath}/{obs_id}/hk"
         else:
-            event_directory = f"{prepath}/{obs_id}/{event_dir_to_use}"
+            event_directory = f"{prepath}/{obs_id}/{event_dir}"
             hk_directory = f"{prepath}/hk"
 
         if not os.path.exists(event_directory):
-            return (None, "Event directory not found")
+            raise Exception("Event directory not found")
         if not os.path.exists(hk_directory):
-            return (None, "HK directory not found")
+            raise Exception("HK directory not found")
 
         hks = [None, None, None]
         for f in os.listdir(hk_directory):
@@ -155,16 +121,12 @@ class IXPEData:
                 if not obs_id in f: continue
             if "det1" in f:
                 hks[0] = f"{hk_directory}/{f}"
-            if "det2" in f:
+            elif "det2" in f:
                 hks[1] = f"{hk_directory}/{f}"
-            if "det3" in f:
+            elif "det3" in f:
                 hks[2] = f"{hk_directory}/{f}"
 
-        for hk in hks:
-            if hk is None:
-                raise Exception("Could not find all the housekeeping files. Did you unzip them?")
-
-        detectors = [None, None, None]
+        detectors = []
         for f in os.listdir(event_directory):
             if not f.endswith(".fits"): continue
             if not f.startswith("ixpe"): continue
@@ -175,27 +137,18 @@ class IXPEData:
             elif "det3" in f:
                 i = 2
             else: continue
-            detectors[i] = IXPEData(source, (f"{event_directory}/{f}", hks[i]), energy_cut, weight_image=weight_image, bin=bin)
+
+            if hks[i] is None:
+                raise Exception(f"Could not find the housekeeping file for DU {i+1}. Did you download and unzip the housekeeping files?")
+            detectors.append(IXPEData((f"{event_directory}/{f}", hks[i])))
 
         logger.info("Successfully loaded files")
         for data in detectors:
-            if data is None: continue
             logger.info(f"\t{data.filename}")
 
-        return (detectors, "")
-    
-    def get_net_polarization(data_list):
-        '''
-        Get the net polarization of all the Q and U in all three detectors image.
-        '''
+        return detectors
 
-        polarizations = []
-        for ixpe_data in data_list:
-            polarization = ixpe_data.get_detector_polarization()
-            polarizations.append(polarization)
-        return np.mean(polarizations, axis=0)
-
-    def __init__(self, source, file_names, energy_cut=(2, 8), weight_image=False, bin=False):
+    def __init__(self, file_names):
         """
         Load the data from a single IXPE file.
 
@@ -204,24 +157,17 @@ class IXPEData:
         source : Source
             A `Source` object used to set the size of the `IXPEData` images. The actual
             source flux is not read; only whether the source is NN or Mom and the shape
-            of the image. To skip binning, pass `Source.no_image`.
+            of the image.
         file_names : tuple of str
             Tuple `(event_name, hk_name)` with paths to the event file and hk file.
         energy_cut : tuple of float, optional
             Event energy range in keV. Default is (2, 8).
-        weight_image : bool, optional
-            If `True`, weight the Q and U images by event weights.
-        bin : bool, optional
-            If `False`, do not bin the data. Ignored if `source` was created with `Source.no_image`.
 
         Returns
         -------
         IXPEData
             The detector data for the given file.
         """
-
-        if not source.has_image:
-            bin = False
 
         with fits.open(file_names[0]) as hdul:
             events = hdul[1].data
@@ -233,11 +179,10 @@ class IXPEData:
             if type(self.obs_id) == int:
                 self.obs_id = f"{self.obs_id:08d}"
 
-            energies = 0.02 + events["PI"] * 0.04
-            mask = np.ones(len(energies), bool)
-            if energy_cut is not None:
-                mask &= (energy_cut[0] <= energies) & (energies < energy_cut[1])
-            events = events[mask]
+            self.use_nn = "W_NN" in hdul[1].columns.names
+            self.use_nn_energies = self.use_nn
+            if "NN_ENERGIES" in hdul[1].header and hdul[1].header["NN_ENERGIES"] == "F":
+                self.use_nn_energies = False
 
             self.evt_xs = events["X"].astype(np.float64) * IXPE_PIXEL_SIZE
             self.evt_ys = events["Y"].astype(np.float64) * IXPE_PIXEL_SIZE
@@ -252,7 +197,7 @@ class IXPEData:
                 self.evt_bg_chars = events["BG_PROB"]
             else:
                 self.evt_bg_chars = np.zeros(len(self.evt_xs))
-            if source.use_nn:
+            if self.use_nn:
                 self.evt_mus = get_nn_modf(self.evt_energies)
             else:
                 self.evt_mus = get_mom_modf(self.evt_energies)
@@ -266,29 +211,21 @@ class IXPEData:
             self.rotation = float(hdu[0].header['PADYN'])
 
         self.expmap = None
-        self.bin = bin
-        self.pixels_per_row = len(source.source)
-        self.pixel_size = source.pixel_size#arcsec
 
-        if bin:
-            self.pos_cut = self.pixels_per_row / 2 * self.pixel_size # Edge of the image in arcsec
-        else:
-            # The user didn't provide a pos retain. Set to something reasonable
-            self.pos_cut = 2.6 * 60
-        self.pixel_edges = np.arange(self.pixels_per_row + 1, dtype=float) * (self.pixel_size) # arcsec
-        self.pixel_edges -= np.max(self.pixel_edges) / 2
-        self.pixel_centers = self.pixel_edges[:-1] + (self.pixel_edges[1] - self.pixel_edges[0]) / 2
-        self.counts = len(events)
-        self.weight_image = weight_image
-        self.use_nn = source.use_nn
-        self.use_nn_energies = source.use_nn
         self.filename = file_names[0]
         self.hk_filename = file_names[1]
         self.offsets = np.zeros(2)
 
         self._apply_vignetting()
-        self._extract_spectrum()
-        self._bin_data()
+        self._weight_nn()
+        try:
+            self.load_expmap()
+        except:
+            # Could not find exposure map
+            pass
+    
+    def __len__(self):
+        return len(self.evt_xs)
 
     def _apply_vignetting(self):
         center = 300*IXPE_PIXEL_SIZE
@@ -296,7 +233,7 @@ class IXPEData:
         vign = load_vign(du_id=self.det)
         self.evt_vigns = vign(self.evt_energies, off_axis_arcmin)
 
-    def weight_nn(self):
+    def _weight_nn(self):
         """
         If this is an NN data set, scrap the energy-dependent modulation factor and instead treat
         the event-by-event weights as the modulation factor. This function will then set all the
@@ -330,8 +267,6 @@ class IXPEData:
         self.evt_mus = self.evt_mus[mask]
         self.evt_bg_chars = self.evt_bg_chars[mask]
         self.evt_times = self.evt_times[mask]
-        self._extract_spectrum()
-        self._bin_data()
 
     def retain_region(self, regfile, exclude=False):
         """
@@ -355,8 +290,8 @@ class IXPEData:
         inaccurate off-axis.
         """
 
-        region = Region.load(regfile)
-        mask = region.check_inside_absolute(self.evt_xs/IXPE_PIXEL_SIZE, self.evt_ys/IXPE_PIXEL_SIZE)
+        region = Region(regfile, assert_format="image")
+        mask = region.contains((self.evt_xs - self.offsets[0])/IXPE_PIXEL_SIZE, (self.evt_ys - self.offsets[1])/IXPE_PIXEL_SIZE)
         if exclude:
             mask = ~mask
 
@@ -366,18 +301,6 @@ class IXPEData:
         self.retain(mask)
         return region
 
-    def _extract_spectrum(self):
-        energies = 0.02 + np.arange(np.max(self.evt_pis) + 1) * 0.04
-        binned_counts = np.zeros_like(energies)
-        binned_weights = np.zeros_like(energies)
-        for pi, weight in zip(self.evt_pis, self.evt_ws):
-            binned_counts[pi] += 1
-            binned_weights[pi] += weight
-
-        averaged_weights = binned_weights / np.maximum(binned_counts, 1)
-
-        self.spectrum = Spectrum(energies, binned_counts, averaged_weights)
-
     def explicit_center(self, x, y):
         """
         Recenter the dataset by offsets x, y in pixels
@@ -385,7 +308,6 @@ class IXPEData:
         self.evt_xs -= x * IXPE_PIXEL_SIZE
         self.evt_ys -= y * IXPE_PIXEL_SIZE
         self.offsets -= (x*IXPE_PIXEL_SIZE, y*IXPE_PIXEL_SIZE)
-        self._bin_data()
 
     def centroid_center(self):
         """
@@ -395,106 +317,19 @@ class IXPEData:
         self.evt_xs -= centroid[0]
         self.evt_ys -= centroid[1]
         self.offsets -= centroid
-        self._bin_data()
 
     def iterative_centroid_center(self):
         """
         Recenter the dataset such that the centroid of the core events is in the center. Do this by iteratively zooming in, so that the final center is set by the core of the PSF, not events in the wings. Yields more accurate results.
         """
-        poses = np.array((self.evt_xs, self.evt_ys)).transpose()
-        self.offsets -= np.nanmedian(poses, axis=0)
-        poses -= np.nanmedian(poses, axis=0)
+        self.explicit_center(300, 300)
 
-        image_mask = (np.abs(poses[:,0]) < self.pos_cut) & \
-            (np.abs(poses[:,1]) < self.pos_cut)
-        self.offsets -= np.nanmedian(poses[image_mask,:], axis=0)
-        poses -= np.nanmedian(poses[image_mask,:], axis=0)
-
-        # Zoom in and recenter again
-        core_mask = np.sqrt(poses[:,0]**2 + poses[:,1]**2) < self.pos_cut / 3
-        self.offsets -= np.nanmedian(poses[image_mask,:], axis=0)
-        poses -= np.nanmedian(poses[core_mask], axis=0)
-
-        # Zoom in and recenter again
-        core_mask = np.sqrt(poses[:,0]**2 + poses[:,1]**2) < self.pos_cut / 9
-        self.offsets -= np.nanmedian(poses[image_mask,:], axis=0)
-        poses -= np.nanmedian(poses[core_mask], axis=0)
-
-        self.evt_xs = poses[:,0]
-        self.evt_ys = poses[:,1]
-        self._bin_data()
-
-    def _bin_data(self):
-        if not self.bin: return
-        poses = np.array((self.evt_xs, self.evt_ys)).transpose()
-        qus = np.array((self.evt_qs, self.evt_us)).transpose()
-
-        # Compute the actual mask for the image
-        image_mask = (np.abs(poses[:,0]) < self.pos_cut) & \
-            (np.abs(poses[:,1]) < self.pos_cut)
-        poses = poses[image_mask]
-        qus = qus[image_mask]
-        weights = self.evt_ws[image_mask]
-
-        xi = np.digitize(poses[:,1], self.pixel_edges[1:])
-        yi = np.digitize(poses[:,0], self.pixel_edges[1:])
-
-        shape = (self.pixels_per_row, self.pixels_per_row)
-        self.i = np.zeros(shape)
-        self.q = np.zeros(shape)
-        self.u = np.zeros(shape)
-        self.n = np.zeros(shape) # Unweighted i
-        self.w2 = np.zeros(shape) # Weights squared
-        self.cov_inv = np.zeros((shape[0], shape[1], 2, 2))
-
-        total_mask = np.zeros_like(xi)
-
-        for x_index in range(self.pixels_per_row):
-            for y_index in range(self.pixels_per_row):
-                mask = (xi == x_index) & (yi == y_index)
-                total_mask += mask
-                if self.weight_image:
-                    pixel_i = np.sum(weights[mask])
-                    qs = qus[mask,0] * weights[mask]
-                    us = qus[mask,1] * weights[mask]
-                else:
-                    pixel_i = np.sum(mask)
-                    qs = qus[mask,0]
-                    us = qus[mask,1]
-                mean_q = np.mean(qs)
-                mean_u = np.mean(us)
-
-                cov = pixel_i * np.array([
-                    [2-mean_q*mean_q, -mean_q*mean_u],
-                    [-mean_q*mean_u, 2-mean_u*mean_u]
-                ])
-
-                if np.sum(mask) == 0:
-                    # Bail on this pixel
-                    self.cov_inv[x_index,y_index] = np.nan
-                else:
-                    self.n[x_index,y_index] = np.sum(mask)
-                    self.w2[x_index,y_index] = np.sum(weights[mask]**2)
-                    self.i[x_index,y_index] = pixel_i
-                    self.q[x_index,y_index] = np.sum(qs)
-                    self.u[x_index,y_index] = np.sum(us)
-                    self.cov_inv[x_index,y_index] = pinvh(cov)
-
-
-    def antirotate_events(self):
-        """
-        Aligns the events so that up is in detector coords rather than north and saves them as `evt_xs_antirot`, `evt_ys_antirot`, `evt_qs_antirot`, `evt_us_antirot`. The original `evt_xs` and `evt_ys` and the image are unaffected.
-        """
-        self.evt_xs_antirot, self.evt_ys_antirot = np.einsum(
-            "ij,ja->ia",
-            self.get_antirotation_matrix(), 
-            [self.evt_xs, self.evt_ys]
-        )
-        self.evt_qs_antirot, self.evt_us_antirot = np.einsum(
-            "ij,ja->ia",
-            self.get_stokes_antirotation_matrix(), 
-            [self.evt_qs, self.evt_us]
-        )
+        for radius in [400, 100, 30]:
+            mask = self.evt_xs**2 + self.evt_ys**2 < radius**2
+            center = np.median([self.evt_xs[mask], self.evt_ys[mask]], axis=1)
+            self.offsets -= center
+            self.evt_xs -= center[0]
+            self.evt_ys -= center[1]
 
     def get_antirotation_matrix(self):
         '''
@@ -513,15 +348,6 @@ class IXPEData:
             [np.cos(2*self.rotation), np.sin(2*self.rotation)],
             [np.sin(-2*self.rotation), np.cos(2*self.rotation)]
         ])
-
-    def get_detector_polarization(self):
-        '''
-        Get the polarization of a single IXPEdata by averaging over the entire image
-        '''
-        mask = self.i > 500
-        normalized_q = self.q / self.i
-        normalized_u = self.u / self.i
-        return np.array([np.nanmean(normalized_q[mask]), np.nanmean(normalized_u[mask])])
 
     def load_expmap(self, filename=None, offset=(0,0)):
         """
@@ -558,13 +384,24 @@ class IXPEData:
             upper_left, lower_right = wcs.all_pix2world([(0, 0), (image.shape[1]-1, image.shape[0]-1)], 0)
             ras = np.linspace(upper_left[0], lower_right[0], image.shape[0])
             decs = np.linspace(upper_left[1], lower_right[1], image.shape[1])
-            self.expmap = RegularGridInterpolator((ras, decs), np.transpose(image), bounds_error=False, fill_value=0)
 
         with fits.open(self.filename) as hdul:
             colx = hdul[1].columns["X"]
             coly = hdul[1].columns["Y"]
-        stretch = np.cos(coly.coord_ref_value * np.pi / 180)
-        ras = (self.evt_xs / IXPE_PIXEL_SIZE - colx.coord_ref_point) / stretch * colx.coord_inc + colx.coord_ref_value
-        decs = (self.evt_ys / IXPE_PIXEL_SIZE - coly.coord_ref_point) * coly.coord_inc + coly.coord_ref_value
+            stretch = np.cos(coly.coord_ref_value * np.pi / 180)
+            xs = ((ras - colx.coord_ref_value) / colx.coord_inc * stretch + colx.coord_ref_point) * IXPE_PIXEL_SIZE
+            ys = ((decs - coly.coord_ref_value) / coly.coord_inc + coly.coord_ref_point) * IXPE_PIXEL_SIZE
 
-        self.evt_exposures = self.expmap((ras-offset[0]/3600/stretch, decs-offset[1]/3600))
+        self.expmap = RegularGridInterpolator((xs, ys), np.transpose(image), bounds_error=False, fill_value=0)
+        self.evt_exposures = self.expmap(self.evt_xs-offset[0], self.evt_ys-offset[0])
+
+    def get_particle_flux_estimate(self):
+        """
+        Estimate the fraction of events in the dataset that are particles. This works by performing a mini-fit, neglecting all spatial and polarization information and just maximizing the likelihood for the particle flux given the observed particle characters.
+        """
+        bg_chars = np.clip(self.evt_bg_chars, 1e-5, 1 - 1e-5)
+        term = (1 - bg_chars) / (2*bg_chars - 1)
+        def solve_func(ps):
+            return np.sum(1 / (term + ps))
+        result = fsolve(solve_func, [0.5])
+        return result[0]

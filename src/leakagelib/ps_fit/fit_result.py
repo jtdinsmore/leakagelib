@@ -1,4 +1,6 @@
 import numpy as np
+import matplotlib.pyplot as plt
+import corner
 
 def _get_constraint_probs(samples, constraint, fit_data):
     SIGMA = 0.01
@@ -34,19 +36,32 @@ def get_hess(func, params, steps):
     return hessian
 
 class FitResult:
-    def __init__(self, best_params, best_like, message, cov, fit_data, fit_settings):
+    def __init__(self, best_params, best_like, message, cov, fit_data, fit_props):
         """
         Create a `FitResult` from a `scipy.optimize.minimize` output
         """
-        self.params = {}
         self.parameter_names = []
-        for i, param in enumerate(best_params):
-            self.params[fit_data.index_to_param(i)] = param
+        for i in range(len(best_params)):
             self.parameter_names.append(fit_data.index_to_param(i))
         self.fun = best_like
         self.message = message
+        self.samples = None
+        self.log_likes = None
 
-        # Get uncertainty information
+        self.source_names = np.array(list(fit_props.guess_quf.keys()))
+        self.fit_data = fit_data
+
+        counts = {}
+        for combo in fit_props.combos:
+            counts[combo.data_key] = len(combo.data)
+        self.dof = np.sum(list(counts.values())) - fit_data.length()
+
+        self.get_uncertainty_information(best_params, cov)
+
+    def get_uncertainty_information(self, best_params, cov):
+        self.params = {}
+        for i, name in enumerate(self.parameter_names):
+            self.params[name] = best_params[i]
         self.means = best_params
         self.cov = cov
         try:
@@ -54,16 +69,88 @@ class FitResult:
         except:
             self.evals, self.evecs = None
         self.sigmas = {}
-        for i, sigma2 in enumerate(np.diagonal(self.cov)):
-            self.sigmas[fit_data.index_to_param(i)] = np.sqrt(sigma2)
+        for i, name in enumerate(self.parameter_names):
+            self.sigmas[name] = np.sqrt(self.cov[i,i])
 
         sigma_array = np.array(list(self.sigmas.values()))
         if np.any(sigma_array) <= 0 or np.any(np.isnan(sigma_array)):
             self.message = "At least one of the parameters is at the boundary. " + self.message
 
-        self.source_names = fit_settings.names
-        self.fit_data = fit_data
-        self.dof = np.sum([len(data.evt_xs) for data in fit_settings.datas]) - fit_data.length()
+    def from_samples(samples, log_likes, fit_data, fit_props):
+        """
+        Create an MCMC from MCMC samples
+        
+        Parameters
+        ----------
+        samples : array
+            Array of samples from the MCMC
+        log_likes : array
+            Sample log likelihoods
+        fit_data : FitData
+            FitData object used to run the fit
+        fit_props : FitProperties
+            Fit properties
+        
+        Returns
+        -------
+            FitResult
+            
+        Returns a normal FitResult, but with samples and log likelihoods stored in the `samples` and `log_likes` fields. These can be manipulated with the `burnin` function and displayed with the `display_corner` and `display_samples` functions.
+        """
+        message = "MCMC fit"
+        best_index = np.argmax(log_likes)
+        best_param = samples[best_index]
+        best_like = log_likes[best_index]
+        cov = np.cov(np.transpose(samples))
+
+        fit_results = FitResult(best_param, best_like, message, cov, fit_data, fit_props)
+        fit_results.samples = samples
+        fit_results.log_likes = log_likes
+        fit_results.sample_mask = np.ones(len(log_likes), bool)
+        return fit_results
+    
+    def burnin(self, burnin):
+        """
+        Remove the first few samples of an MCMC fit. This function can be called multiple times. Each new call, the previously removed samples will be added back in.
+        """
+        if self.samples is None:
+            raise Exception("Burnin can only be applied to an MCMC fit result")
+        self.sample_mask = np.arange(len(self.log_likes)) > burnin
+
+        best_index = np.argmax(self.log_likes[self.sample_mask])
+        self.best_like = self.log_likes[self.sample_mask][best_index]
+        best_param = self.samples[self.sample_mask][best_index]
+        cov = np.cov(np.transpose(self.samples[self.sample_mask]))
+        self.get_uncertainty_information(best_param, cov)
+
+    def display_corner(self):
+        """
+        Show a corner plot of the MCMC results
+        """
+        if self.samples is None:
+            raise Exception("Corner plots can only be made for an MCMC fit result")
+        
+        labels = []
+        for param, name in self.parameter_names:
+            labels.append(f"${param}_\\mathrm{{{name}}}$")
+        fig = corner.corner(self.samples[self.sample_mask], labels=labels, show_titles=True, levels=(0.68, 0.95))
+        return fig
+
+    def display_samples(self):
+        """
+        Display the samples from an MCMC fit. This is useful for working out the appropriate burnin length to remove
+        """
+        fig, axs = plt.subplots(nrows=len(self.samples[0]), sharex=True)
+        labels = []
+        for param, name in self.parameter_names:
+            labels.append(f"${param}_\\mathrm{{{name}}}$")
+
+        for i, ax in enumerate(axs):
+            ax.scatter(np.arange(len(self.samples[self.sample_mask])), self.samples[self.sample_mask, i], marker='.', s=2, color='k', alpha=0.1)
+            ax.set_ylabel(labels[i])
+
+        ax.set_xlabel("Iteration")
+        return fig
 
     def get_pd_pa(self, tag="src"):
         """

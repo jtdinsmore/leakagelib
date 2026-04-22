@@ -6,7 +6,7 @@ from .spectrum import EnergyDependence
 VMAX = 0.5
 INITIAL_RATE = 1e-3
 
-def fit_extended(source, psfs, spectrum, is_obs, qs_obs, us_obs, initial_source_pol=None, inertia=None, num_iter=5000, max_rate=1e-2, report_frequency=50, regularize_coeff=1, energy_dependence=None):
+def fit_extended(combos, spectrum, is_obs, qs_obs, us_obs, initial_source_pol=None, inertia=None, num_iter=5000, max_rate=1e-2, report_frequency=50, regularize_coeff=1, energy_dependence=None):
     """
     Fit for the source Q and U given an observed Q and U. The resulting source Q and U
     are stored in `self.q_map` and `self.u_map`.
@@ -48,26 +48,20 @@ def fit_extended(source, psfs, spectrum, is_obs, qs_obs, us_obs, initial_source_
         `animation` is None.
     """
 
-
-    if len(psfs) != 3:
-        raise Exception("You must provide 3 PSFs")
-
-    if len(is_obs) != 3 or len(qs_obs) != 3 or len(us_obs) != 3:
-        raise Exception("You must provide 3 observations of I, Q, and U.")
+    if len(combos) != len(is_obs) or len(combos) != len(qs_obs) or len(combos) != len(us_obs):
+        raise Exception("You must provide the same number of observations as data sets")
 
     # Get the leakage parameters
-    if energy_dependence is None:
-        energy_dependence = EnergyDependence.default(source.use_nn)
-    detector_params = []
-    for det in range(3):
-        detector_params.append(energy_dependence.get_params(spectrum))
+    leakage_params = []
+    for combo in combos:
+        leakage_params.append(combo.energy_dependence.get_params(spectrum))
 
     # Initialization
     n_pixels = np.prod(is_obs[0].shape)
     if initial_source_pol is None:
         initial_source_pol = np.array([np.mean(qs_obs, axis=0), np.mean(us_obs, axis=0)])
         # initial_source_pol += np.random.randn(*initial_source_pol.shape) * 0.1
-        initial_source_pol *= spectrum.get_avg_one_over_mu(source.use_nn)
+        initial_source_pol *= spectrum.get_avg_one_over_mu(combos[0].use_nn)
     source_pol = initial_source_pol
     last_gradient = None
     rate = INITIAL_RATE
@@ -118,6 +112,7 @@ def fit_extended(source, psfs, spectrum, is_obs, qs_obs, us_obs, initial_source_
         rates = []
         saved_iterations = []
 
+    source = combos[0].source
     min_z = None
     min_source_pol = None
     if inertia is None:
@@ -132,37 +127,37 @@ def fit_extended(source, psfs, spectrum, is_obs, qs_obs, us_obs, initial_source_
         z = 0
         source.polarize_array(source_pol)
 
-        for det, params in enumerate(detector_params):
-            leak_i, leak_q, leak_u = source.compute_leakage(psfs[det], spectrum, normalize=True)
+        for combo, params, q_obs, u_obs in zip(combos, leakage_params, qs_obs, us_obs):
+            leak_i, leak_q, leak_u = combo.compute_leakage(spectrum, normalize=True)
             leak_i *= np.sum(source.source) / np.sum(leak_i) # This thing makes the analytic gradient incorrect but I don't think it matters because it ought to affect every pixel by about the same amount, effectively scaling the gradient rather than turning it and who cares about that.
 
-            delta_q = leak_q - qs_obs[det]
-            delta_u = leak_u - us_obs[det]
+            delta_q = leak_q - q_obs
+            delta_u = leak_u - u_obs
 
             z += np.sum(delta_q**2 + delta_u**2)
 
             i0_qq = np.flip(
-                + params["mu"] * psfs[det].psf
-                + params["mu_sigma_plus"] * psfs[det].d_zs
-                + params["mu_k_plus"] * psfs[det].d_zk
-                + params["mu_k_cross"] * psfs[det].d_xk / 2
+                + params["mu"] * combo.psf.psf
+                + params["mu_sigma_plus"] * combo.psf.d_zs
+                + params["mu_k_plus"] * combo.psf.d_zk
+                + params["mu_k_cross"] * combo.psf.d_xk / 2
             )
             i0_uu = np.flip(
-                + params["mu"] * psfs[det].psf
-                + params["mu_sigma_plus"] * psfs[det].d_zs
-                + params["mu_k_plus"] * psfs[det].d_zk
-                - params["mu_k_cross"] * psfs[det].d_xk / 2
+                + params["mu"] * combo.psf.psf
+                + params["mu_sigma_plus"] * combo.psf.d_zs
+                + params["mu_k_plus"] * combo.psf.d_zk
+                - params["mu_k_cross"] * combo.psf.d_xk / 2
             )
             i0_qu = np.flip(
-                + params["mu_k_cross"] * psfs[det].d_yk / 2
+                + params["mu_k_cross"] * combo.psf.d_yk / 2
             )
             q0 = np.flip(
-                + params["mu_sigma_minus"] * psfs[det].d_qs
-                + params["mu_k_minus"] * psfs[det].d_qk
+                + params["mu_sigma_minus"] * combo.psf.d_qs
+                + params["mu_k_minus"] * combo.psf.d_qk
             )
             u0 = np.flip(
-                + params["mu_sigma_minus"] * psfs[det].d_us
-                + params["mu_k_minus"] * psfs[det].d_uk
+                + params["mu_sigma_minus"] * combo.psf.d_us
+                + params["mu_k_minus"] * combo.psf.d_uk
             )
 
             gradient[0] += (

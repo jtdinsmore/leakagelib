@@ -10,7 +10,7 @@ OBSSIM_BLUR = 0#1.8# Arcsec
 
 class PSF:
     '''
-    Stores the PSF of the telescope for a given detector. Don't use this constructor; use the :meth:`PSF.sky_cal`, :meth:`PSF.ground_cal`, and :meth:`PSF.obssim` functions to load specific PSFs.
+    Stores the PSF of the telescope for a given detector. Don't use this constructor; use the :meth:`leakagelib.PSF.sky_cal`, :meth:`leakagelib.PSF.ground_cal`, and :meth:`leakagelib.PSF.obssim` functions to load specific PSFs.
     '''
     def _rotate(image, rotation_deg):
         '''

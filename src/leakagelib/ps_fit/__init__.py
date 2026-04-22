@@ -17,9 +17,7 @@ def estimate_particle_flux(datas):
     def minus_like(params):
         f, = params
         like = np.sum(np.log(f*all_particle_odds + (1 - f)))
-        print(f, like)
         return -like
     
     result = minimize(minus_like, x0=[0.5], bounds=[[0, 1]], method="nelder-mead")
-    print(result)
     return result.x[0]

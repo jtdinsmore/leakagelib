@@ -15,5 +15,5 @@ See below for several jupyter notebooks containing increasingly advanced example
     :caption: Jupyter notebook examples
 
     examples/leakage-predict.ipynb
+    examples/leakage-compare.ipynb
     examples/leakage-severity.ipynb
-    examples/leakage-extract.ipynb

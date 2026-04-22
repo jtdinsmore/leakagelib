@@ -3,8 +3,8 @@ from scipy.interpolate import interp1d
 from .settings import *
 from . import modulation
 
-class Spectrum:
-    def __init__(self, bin_centers, counts, weights):
+class DataSpectrum:
+    def __init__(self, bin_centers, counts, weights=None):
         """
         Returns the spectrum object, which contains information about the distribution
         of counts and weights as functions of energy in a given data set.
@@ -26,6 +26,12 @@ class Spectrum:
         self.counts *= weights
         self.counts /= np.sum(self.counts)
 
+    def from_data(data, binning=1):
+        bin_edges = np.arange(np.min(data.evt_energies), np.max(data.evt_energies), 0.04 * binning)
+        counts = np.histogram(data.evt_energies, bin_edges)[0].astype(float)
+        bin_centers = (bin_edges[1:] + bin_edges[:-1]) / 2
+        return DataSpectrum(bin_centers, counts)
+
     def from_power_law_index(pl_index):
         '''
         Load the spectrum assuming power law-distributed 2-8 keV counts. Unweighted. Useful for demonstration purposes only. In practice, use a more accurate simulation for an IXPE observation.
@@ -35,13 +41,12 @@ class Spectrum:
         arf = load_arf()
         energies = np.arange(2, 8, 0.04)
         counts = arf(energies) * energies**(-pl_index)
-        return Spectrum(energies, counts, None)
+        return DataSpectrum(energies, counts)
     
     def weighted_average(self, array):
         '''
         Get the event fractions in each energy bin
         '''
-
         return np.sum(self.counts * array)
     
     def _sample_from_interpolator(self, interp):
@@ -51,16 +56,14 @@ class Spectrum:
         '''
         Save to a file
         '''
-
         np.save(f, [self.bin_centers, self.counts])
 
     def load(f):
         '''
         Load from a file
         '''
-
         bin_centers, counts = np.load(f)
-        return Spectrum(bin_centers, counts, None)
+        return DataSpectrum(bin_centers, counts, None)
 
     def get_avg_one_over_mu(self, use_nn):
         '''
@@ -73,6 +76,17 @@ class Spectrum:
             mus = modulation.get_mom_modf(self.bin_centers)
         return self.weighted_average(1/mus)
 
+    def get_avg_one_over_mu_squared(self, use_nn):
+        '''
+        Get the average of 1 over the modulation factor squared.
+        '''
+
+        if use_nn:
+            mus = modulation.get_nn_modf(self.bin_centers)
+        else:
+            mus = modulation.get_mom_modf(self.bin_centers)
+        return self.weighted_average(1/mus**2)
+
     def get_avg_mu(self, use_nn):
         '''
         Get the average of 1 over the modulation factor.
@@ -84,7 +98,6 @@ class Spectrum:
             mus = modulation.get_mom_modf(self.bin_centers)
         return self.weighted_average(mus)
     
-
 class EnergyDependence:
     """
     A class that holds interpolators for the leakage parameters sigma_parallel, sigma_perp, and mu as a function of energy. Differences between detectors is not accounted for.
@@ -213,8 +226,8 @@ class EnergyDependence:
 
         Parameters
         ----------
-        spectrum : Spectrum
-            Spectrum object for the data in question. Either create one directly or use
+        spectrum : DataSpectrum
+            DataSpectrum object for the data in question. Either create one directly or use
             the `spectrum` attribute of an IXPEData object.
 
         Returns
