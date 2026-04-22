@@ -75,7 +75,7 @@ class PSFSourceCombo:
 
         # Spatial weights
         if self.spatial_weight:
-            probs *= self.get_event_p_r_given_phi()
+            probs *= self._get_event_p_r_given_phi()
 
         # Phase weights
         if self.temporal_weights is not None:
