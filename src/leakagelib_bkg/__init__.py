@@ -9,7 +9,7 @@ CHUNK_SIZE = 2048
 
 def flag_background(l1_file, l2_file, outfile):
     """
-    Write the probability of each event being background to the BG_PROB column of `outfile`. The
+    Write the probability of each event being background to the BG_CHAR column of `outfile`. The
     rest of the event data is taken from the provided l2_file. The tracks are taken from the
     l1_file.
     
@@ -39,4 +39,4 @@ def flag_background(l1_file, l2_file, outfile):
             bg_probs.append(model(chunk_tracks))
     bg_probs = np.concatenate(bg_probs)
 
-    write_probs(l2_file, outfile, bg_probs) # Write the probs to the BG_PROB column of outfile.
+    write_probs(l2_file, outfile, bg_probs) # Write the probs to the BG_CHAR column of outfile.
