@@ -104,7 +104,7 @@ class IXPEData:
             event_directory = f"{prepath}/{obs_id}/{event_dir}"
             hk_directory = f"{prepath}/{obs_id}/hk"
         else:
-            event_directory = f"{prepath}/{obs_id}/{event_dir}"
+            event_directory = f"{prepath}/{event_dir}"
             hk_directory = f"{prepath}/hk"
 
         if not os.path.exists(event_directory):
@@ -195,6 +195,8 @@ class IXPEData:
             self.evt_vigns = np.ones_like(self.evt_xs)
             if "BG_PROB" in events.columns.names:
                 self.evt_bg_chars = events["BG_PROB"]
+            elif "BG_CHAR" in events.columns.names:
+                self.evt_bg_chars = events["BG_CHAR"]
             else:
                 self.evt_bg_chars = np.zeros(len(self.evt_xs))
             if self.use_nn:

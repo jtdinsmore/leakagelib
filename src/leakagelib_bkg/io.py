@@ -26,12 +26,12 @@ def write_probs(infile, outfile, bg_probs):
     
     with fits.open(infile) as hdul:
         if len(hdul[1].data) != len(bg_probs):
-            raise Exception("The L1 file you provided does not have the same number of events as the file you are masking..")
+            raise Exception("The L1 file you provided does not have the same number of events as the file you are masking.")
 
         # Copy all the file HDUs
         hdul_copy = fits.HDUList([hdu.copy() for hdu in hdul])
 
-        bg_prob_col = fits.Column(name='BG_PROB', format='E', array=bg_probs)
+        bg_prob_col = fits.Column(name='BG_CHAR', format='E', array=bg_probs)
         new_cols = hdul[1].columns + bg_prob_col
         hdul_copy[1] = fits.BinTableHDU.from_columns(new_cols, header=hdul[1].header)
 
