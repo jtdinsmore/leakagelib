@@ -38,7 +38,7 @@ class FitProperties:
                             psf.blur(fit_settings.fixed_blur)
 
                     combo = PSFSourceCombo(source, psf, data.use_nn)
-                    combo.prepare_fit(data, fit_settings, source_name)
+                    combo._prepare_fit(data, fit_settings, source_name)
                     self.combos.append(combo)
 
         # Copy over some of the other data
@@ -58,8 +58,6 @@ class FitProperties:
                     else:
                         spectrum = lambda e: (e**-1.6)
                     fit_settings.set_spectrum(name, spectrum, use_arf=False, use_rmf=False)
-                else:
-                    logger.warning("The source {name} has no spectrum assigned, but spectra were assigned to other sources. This is equivalent to assuming that {name} has a flat spectrum. Is that intentional?")
         
         # Fix a flux
         if np.all([quf[2] is None for quf in fit_settings.fixed_quf.values()]):
@@ -100,7 +98,7 @@ class FitProperties:
             for name in fit_settings.sources:
                 if fit_settings.spectral_weights[name] is not None: continue
                 if not fit_settings.particles[name]:
-                    logger.warning("The source {name} has no spectrum assigned, but spectra were assigned to other sources. This is equivalent to assuming that {name} has a flat spectrum. Is that intentional?")
+                    logger.warning(f"The source {name} has no spectrum assigned, but spectra were assigned to other sources. This is equivalent to assuming that {name} has a flat spectrum. Is that intentional?")
 
         # Warn if the sources are different sizes
         common_pixel_size = None

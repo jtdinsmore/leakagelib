@@ -174,7 +174,7 @@ class Fitter:
 
             f = self.fit_data.param_to_value(params, "f", combo.name)
             combo.polarize_net((0, 0))
-            evt_probs += combo.get_event_p_r_given_phi() * f
+            evt_probs += combo._get_event_p_r_given_phi() * f
 
         max_r = np.max(np.sqrt(combo.data.evt_xs**2 + combo.data.evt_ys**2))
         mask = combo.data.evt_bg_chars < 0.2
