@@ -135,7 +135,7 @@ def make_merged_image(args):
         ra_zero - args.centerx * IXPE_PIXEL_SIZE / 3600 / stretch,
         dec_zero + args.centerx * IXPE_PIXEL_SIZE / 3600
     ]
-    w.wcs.crpix = [len(pixel_edges)//2+0.5, len(pixel_edges)//2+0.5]
+    w.wcs.crpix = [len(pixel_edges)//2, len(pixel_edges)//2]
     w.wcs.cdelt = [-PIXEL_WIDTH / 3600, PIXEL_WIDTH / 3600]
     w.wcs.cunit = ["deg", "deg"]
     header = w.to_header()

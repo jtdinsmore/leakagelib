@@ -40,16 +40,15 @@ class Region:
                 center = reg.center
             except Exception:
                 # fallback: average vertices if no analytic center
-                coords = []
                 for r in regions:
                     if hasattr(r, "vertices"):
-                        coords.append(r.vertices)
-                center = np.mean(coords, axis=0)
-                print(center.shape, "2")# TODO
-
+                        center = r.vertices[0]
+                        break
             pixel_size = 1/3600
-            radius = 10/60
+            radius = 16/60
             npix = int(2*radius / pixel_size)
+            if npix % 2 == 0:
+                npix += 1
 
             self.wcs = WCS(naxis=2)
             self.wcs.wcs.ctype = ["RA---TAN", "DEC--TAN"]

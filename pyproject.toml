@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "LeakageLib"
-version = "2.0.1"
+version = "2.0.2"
 description = "Tools to fit for polarizations and predict polarization leakage for the IXPE satellite"
 readme = "readme.md"
 requires-python = ">=3.9"
