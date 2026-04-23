@@ -4,6 +4,7 @@ from astropy.io import fits
 from . import spectral_weights
 from ..source import Source
 from ..ixpe_data import IXPE_PIXEL_SIZE
+from ..region import Region
 from ixpeobssim.irf import load_vign, load_arf
 
 USE_SPECTRAL_MUS = False # Set to True to account for the fact that the finite detector energy
@@ -173,11 +174,14 @@ class FitSettings:
         """
 
         real_obs_ids = np.copy(self.all_obs_ids) if obs_ids is None else obs_ids
-        detectors = []
-        for o in real_obs_ids:
-            for d in self.all_detectors[o]:
-                detectors.append(d)
-        detectors = np.unique(detectors)
+        if det is None:
+            detectors = []
+            for o in real_obs_ids:
+                for d in self.all_detectors[o]:
+                    detectors.append(d)
+            detectors = np.unique(detectors)
+        else:
+            detectors = det
 
         self._check_source_dim(source)
         self.sources[name] = source
@@ -195,7 +199,7 @@ class FitSettings:
         if self.pixel_centers is None:
             self.pixel_centers = source.pixel_centers
         
-    def set_spectrum(self, source_name, spectrum, use_arf=True, use_rmf=True, duty_cycle=None, irf_name=None):
+    def set_spectrum(self, source_name, spectrum, use_arf=True, use_rmf=True, use_vignetting=False, duty_cycle=None, irf_name=None):
         """
         Set a spectrum for a source. Weights are assigned by running the spectrum
         function on all event energies.
@@ -215,6 +219,8 @@ class FitSettings:
         duty_cycle : callable, optional
             Fraction of data to distribute over energy. Default is uniform over the data range.
             If a contiguous energy cut was applied, the default may be used.
+        use_vignetting : bool
+            Set to True to use IXPEobssim's vignetting function to model vignetting across the detector. Default: False
         """
 
         if not source_name in self.sources:
@@ -236,9 +242,11 @@ class FitSettings:
         convolved_spec = rmf.convolve_spectrum(arf_spectrum)
 
         weights = []
-        mus = []
         max_energy = -np.inf
         min_energy = np.inf
+
+        if USE_SPECTRAL_MUS:
+            self.spectral_mus[source_name] = []
         for data in self.datas:
             max_energy = max(np.max(data.evt_energies), max_energy)
             min_energy = min(np.min(data.evt_energies), min_energy)
@@ -248,9 +256,7 @@ class FitSettings:
             if USE_SPECTRAL_MUS:
                 convolved_spec_mu = rmf.convolve_spectrum_mu(arf_spectrum, data.use_nn)
                 these_mus = convolved_spec_mu(data.evt_energies) / these_weights
-                mus.append(these_mus)
-            else:
-                mus.append(data.evt_mus)
+                self.spectral_mus[source_name].append(these_mus)
 
         # Compute normalization
         energies = np.linspace(min_energy, max_energy, 100)
@@ -264,16 +270,15 @@ class FitSettings:
         multiplier = integral_constant / integral        
         for i in range(len(weights)):
             weights[i] *= multiplier
+        self.spectral_weights[source_name] = weights
 
         # Get vignetting function
-        vign_function = load_vign()
-        vignettes = []
-        for radius in self.vignette_radial_bins:
-            vignettes.append(np.sum(vign_function(energies, radius) * spectrum_array / integral))
-
-        self.spectral_vignettes[source_name] = vignettes
-        self.spectral_weights[source_name] = weights
-        self.spectral_mus[source_name] = mus
+        if use_vignetting:
+            vign_function = load_vign()
+            vignettes = []
+            for radius in self.vignette_radial_bins:
+                vignettes.append(np.sum(vign_function(energies, radius) * spectrum_array / integral))
+            self.spectral_vignettes[source_name] = vignettes
         
     def set_lightcurve(self, source_name, lightcurve, duty_cycle=None):
         """
@@ -484,10 +489,20 @@ class FitSettings:
 
         # Cut events outside the ROI
         total_cut = 0
+        pixel_width = self.pixel_centers[1] - self.pixel_centers[0]
+        pixel_edges = np.append(self.pixel_centers - pixel_width/2, self.pixel_centers[-1] + pixel_width/2)
         for data_index, data in enumerate(self.datas):
-            ix = np.digitize(data.evt_xs, self.pixel_centers) - 1
-            iy = np.digitize(data.evt_ys, self.pixel_centers) - 1
-            cut_mask = roi_image[ix, iy] < 1e-4
+            # Cut everything outside the source array
+            ix = np.digitize(data.evt_xs, pixel_edges) - 1
+            iy = np.digitize(data.evt_ys, pixel_edges) - 1
+            cut_mask = ix < 0
+            cut_mask |= iy < 0
+            cut_mask |= ix >= len(self.pixel_centers)
+            cut_mask |= iy >= len(self.pixel_centers)
+
+            # Cut everythign inside the source array but outside the ROI
+            cut_mask[~cut_mask] = roi_image[iy[~cut_mask], ix[~cut_mask]] < 1e-4
+
             if np.sum(cut_mask) > 0:
                 total_cut += np.sum(cut_mask)
                 data.retain(~cut_mask)
@@ -512,7 +527,7 @@ class FitSettings:
         """
         if len(self.sources) == 0:
             pixel_width = 2.9729
-            num_pixels = np.ceil(2*radius / 2.9729) + 2
+            num_pixels = np.ceil(2*radius / pixel_width) + 2
             if num_pixels % 1 == 0:
                 num_pixels += 1
             self.pixel_centers = np.arange(num_pixels) * pixel_width
@@ -520,10 +535,46 @@ class FitSettings:
 
         xs, ys = np.meshgrid(self.pixel_centers, self.pixel_centers)
         roi_image = xs**2 + ys**2 < radius**2
-        self.apply_roi(roi_image.astype(float))
+
+        if self.roi is None:
+            net_roi = roi_image.astype(float)
+        else:
+            net_roi = self.roi * roi_image.astype(float)
+        self.apply_roi(net_roi)
+
+    def apply_roi_cut(self, region, exclude=False):
+        """
+        Apply a region to the ROI. If the ROI is already created, this region will be and-ed with the existing ROI (that is, the final ROI will be the pixels which were already inside the previous ROI AND satisfy this region constraint).
+
+        Parameters
+        ----------
+        region : str
+            Path to the region file
+        exclude : bool, optional
+            Set to False to limit the ROI to this region. Set to True to exclude this region from the ROI. Default: false.
+        """
+        if self.pixel_centers is None:
+            raise Exception("You must call either apply_circular_roi or create a source before calling apply_roi_cut; the fitter needs to know how big the ROI is before applying the cut.")
+
+        xs, ys = np.meshgrid(self.pixel_centers, self.pixel_centers)
+        # Covert to pixels
+        xs = (xs - self.datas[0].offsets[0]) / IXPE_PIXEL_SIZE
+        ys = (ys - self.datas[0].offsets[1]) / IXPE_PIXEL_SIZE
+
+        reg = Region(region)
+        roi_image = reg.contains(xs,ys)
+        if exclude:
+            roi_image = ~roi_image
+
+        if self.roi is None:
+            net_roi = roi_image.astype(float)
+        else:
+            net_roi = self.roi * roi_image.astype(float)
+        self.apply_roi(net_roi)
 
     def get_n_sources(self):
         """
         Returns the number of sources that have been added to the fitter.
         """
         return len(self.sources)
+        

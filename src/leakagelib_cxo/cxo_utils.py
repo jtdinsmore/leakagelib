@@ -78,7 +78,7 @@ def make_merged_image(args):
         with fits.open(args.cxo_evt[i]) as hdul:
             these_ras, these_decs = sky_to_ra_dec(hdul[1].data["X"], hdul[1].data["Y"], hdul[1].columns["X"], hdul[1].columns["Y"])
             these_energies = np.array(hdul[1].data["ENERGY"]).astype(float) / 1000
-            mask = (these_energies > float(args.elow)) & (these_energies < float(args.ehigh))
+            mask = (these_energies > args.elow) & (these_energies < args.ehigh)
 
         this_arf = ARF(args.cxo_arf[i])
         these_weights = ixpe_arf(these_energies[mask]) / this_arf(these_energies[mask])
@@ -133,7 +133,7 @@ def make_merged_image(args):
     w.wcs.ctype = ["RA---TAN", "DEC--TAN"]
     w.wcs.crval = [
         ra_zero - args.centerx * IXPE_PIXEL_SIZE / 3600 / stretch,
-        dec_zero + args.centerx * IXPE_PIXEL_SIZE / 3600
+        dec_zero + args.centery * IXPE_PIXEL_SIZE / 3600
     ]
     w.wcs.crpix = [len(pixel_edges)//2, len(pixel_edges)//2]
     w.wcs.cdelt = [-PIXEL_WIDTH / 3600, PIXEL_WIDTH / 3600]

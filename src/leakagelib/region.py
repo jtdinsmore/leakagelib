@@ -3,6 +3,8 @@ from regions import Regions, PixCoord
 from astropy.coordinates import SkyCoord
 from astropy.wcs import WCS
 
+IXPE_PIXEL_SIZE = 2.6
+
 class Region:
     """
     Class to store CIAO-format regions. Either fk5 or physical coordinates are allowed.
@@ -23,15 +25,16 @@ class Region:
             self.fmt = "fk5"
         else:
             self.fmt = "image"
-
+        if assert_format is not None and assert_format != self.fmt:
             raise Exception(f"The region {filename} was supposed to be in {assert_format} but it was actually in {self.fmt} format. Please change it.")
         text = self.fmt + ";\n" + text
 
         # Load the region
         regions = Regions.parse(text, format="ds9")
+        self.regions = regions
         self.region = regions[0]
         for reg in regions:
-            self.region |= reg
+            self.region &= reg
 
         # Get a tan projection to use sky coordinates
         if self.fmt == "fk5":
@@ -68,4 +71,16 @@ class Region:
             return self.region.contains(coord, self.wcs)
     
     def area(self):
-        return self.region.area()
+        if self.fmt == "image":
+            reg = self.region
+            pixel_center = 300
+            pixel_area = (IXPE_PIXEL_SIZE / 3600)**2 # Square degrees
+        else:
+            reg = self.region.to_pixel(self.wcs)
+            pixel_center = self.wcs.wcs.crpix[0]
+            pixel_area = self.wcs.wcs.cdelt[1]**2 # Square degrees
+        line = np.arange(2*pixel_center)
+        xs, ys = np.meshgrid(line, line)
+        coords = PixCoord(x=xs, y=ys)
+        image = reg.contains(coords)
+        return np.sum(image) * pixel_area

@@ -30,18 +30,23 @@ class PSFSourceCombo:
 
         self.spatial_weight = fit_settings.spatial_weight
         self.particles = fit_settings.particles[source_name]
+
         self.temporal_weights = fit_settings.temporal_weights[source_name]
         if self.temporal_weights is not None:
             self.temporal_weights = self.temporal_weights[data_index]
+
         self.spectral_weights = fit_settings.spectral_weights[source_name]
         if self.spectral_weights is not None:
             self.spectral_weights = self.spectral_weights[data_index]
+
         self.evt_mus = np.copy(self.data.evt_mus)
         if fit_settings.spectral_mus[source_name] is not None:
             self.evt_mus = fit_settings.spectral_mus[source_name][data_index]
+
         self.sweeps = fit_settings.sweeps[source_name]
         if self.sweeps is not None:
             self.sweeps = self.sweeps[data_index]
+
         self.model_fn = fit_settings.model_fns[source_name]
 
         # Prepare ROI

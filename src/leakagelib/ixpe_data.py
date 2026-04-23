@@ -199,6 +199,7 @@ class IXPEData:
                 self.evt_bg_chars = events["BG_CHAR"]
             else:
                 self.evt_bg_chars = np.zeros(len(self.evt_xs))
+
             if self.use_nn:
                 self.evt_mus = get_nn_modf(self.evt_energies)
             else:
@@ -244,7 +245,6 @@ class IXPEData:
         """
         if self.use_nn:
             self.evt_mus = np.copy(self.evt_ws)
-            self.evt_ws = np.ones_like(self.evt_ws)
 
     def retain(self, mask):
         """

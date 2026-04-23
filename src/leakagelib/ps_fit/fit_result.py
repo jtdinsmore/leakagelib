@@ -62,7 +62,7 @@ class FitResult:
         self.params = {}
         for i, name in enumerate(self.parameter_names):
             self.params[name] = best_params[i]
-        self.means = best_params
+        self.best_params = best_params
         self.cov = cov
         try:
             self.evals, self.evecs = np.linalg.eigh(self.cov)
@@ -224,7 +224,7 @@ class FitResult:
             raise Exception("Cannot generate samples from a non-positive definite covariance matrix")
         samples = np.random.randn(n_samples, len(self.evals)) * np.sqrt(self.evals)
         samples = np.einsum("ij,aj->ai", self.evecs, samples)
-        samples += self.means
+        samples += self.best_params
         return samples.transpose()
 
     def get_constrained_samples(self, constraint, n_samples, n_iterations=100):
