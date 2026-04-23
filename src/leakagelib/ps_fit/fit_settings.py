@@ -503,7 +503,8 @@ class FitSettings:
                 if self.sweeps[name] is not None:
                     self.sweeps[name][data_index] = self.sweeps[name][data_index][~cut_mask]
 
-        logger.warning(f"{total_cut} events were cut for being outside the region of interest.")
+        if total_cut > 0:
+            logger.warning(f"{total_cut} events were cut for being outside the region of interest.")
 
     def apply_circular_roi(self, radius):
         """

@@ -141,6 +141,8 @@ def make_merged_image(args):
     header = w.to_header()
     del header["LATPOLE"]
     del header["LONPOLE"]
+    header["WCENTERX"] = args.centerx
+    header["WCENTERY"] = args.centery
     try:
         fits.writeto(args.output, image, header, overwrite=args.clobber)
     except OSError:

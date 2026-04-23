@@ -112,4 +112,4 @@ class FitProperties:
             common_pixel_size = source.pixel_size
             common_source_dimensions = source.source.shape
         if np.abs(common_pixel_size - 2.9729) > 1e-4:
-            logger.warning(f"The source {name} had pixel width not equal to 2.9729. 2.9279 is the pixel width of the sky calibrated PSF, and analysis will be most accurate if you use that pixel width for your sources too.")
+            logger.warning(f"The sources had pixel width not equal to 2.9729. 2.9279 is the pixel width of the sky calibrated PSF, and analysis will be most accurate if you use that pixel width for your sources too.")

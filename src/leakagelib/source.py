@@ -101,8 +101,6 @@ def _process_file(file_name, num_pixels, target_pixel_size, hdui=0, rescale=Fals
         elif len(image) < num_pixels:
             logger.warning("Zero padding the source image")
             image = _pad_image(image, num_pixels)
-
-    image = np.flip(image, axis=1)
     
     return image, num_pixels, target_pixel_size
 
