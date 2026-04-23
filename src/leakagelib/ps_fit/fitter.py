@@ -75,6 +75,7 @@ class Fitter:
 
         fig, axs = plt.subplots(nrows=n_images, ncols=2, figsize=(6,3*n_images), sharex=True, sharey=True)
         i = 0
+        stacked_roi = None
         for combo in self.fit_props.combos:
             if combo.data_key != data_key: continue
             ax_row = axs[i]
@@ -89,6 +90,11 @@ class Fitter:
             ax_row[0].set_title(combo.name)
             ax_row[1].set_title(f"{combo.name} w/ PSF")
             i += 1
+
+            if stacked_roi is None:
+                stacked_roi = np.copy(combo.roi)
+            else:
+                stacked_roi += combo.roi
 
         # Show ROI
         axs[-1,0].pcolormesh(pixel_centers, pixel_centers, np.flip(combo.roi, axis=1), vmin=0, cmap="viridis")
@@ -147,7 +153,7 @@ class Fitter:
 
         return cov
     
-    def plot(self, params=None, n_bins=101, det=1):
+    def plot(self, params=None, n_bins=100):
         """
         Plot the image predicted by the fitter vs the data
 
@@ -157,7 +163,6 @@ class Fitter:
             Parameter array to plot. Default: the starting values
         n_bins : int, optional
             Number of spatial bins to use
-        det
 
         Returns
         -------
@@ -166,28 +171,27 @@ class Fitter:
         if params is None:
             params = self._get_start_params()[0]
 
-        evt_probs = None
-        for combo in self.fit_props.combos:
-            if combo.data.det != det: continue
-            if evt_probs is None:
-                evt_probs = np.zeros_like(combo.data.evt_xs)
+        first_combo = self.fit_props.combos[0]
+        max_r = np.max(np.sqrt(first_combo.data.evt_xs**2 + first_combo.data.evt_ys**2))
+        line = np.linspace(-max_r, max_r, n_bins+1)
+        counts = np.zeros((n_bins, n_bins))
+        pred = np.zeros((n_bins, n_bins))
 
+        for combo in self.fit_props.combos:
+            if combo.particles: continue
             f = self.fit_data.param_to_value(params, "f", combo.name)
             combo.polarize_net((0, 0))
-            evt_probs += combo._get_event_p_r_given_phi() * f
-
-        max_r = np.max(np.sqrt(combo.data.evt_xs**2 + combo.data.evt_ys**2))
-        mask = combo.data.evt_bg_chars < 0.2
+            evt_probs = combo._get_event_p_r_given_phi() * f
+            mask = combo.data.evt_bg_chars < 0.2
+            counts = np.histogram2d(combo.data.evt_xs[mask], combo.data.evt_ys[mask], (line, line))[0].astype(float)
+            pred += np.histogram2d(combo.data.evt_xs[mask], combo.data.evt_ys[mask], (line, line), weights=evt_probs[mask])[0].astype(float)
+        pred /= counts
 
         fig, (ax1, ax2) = plt.subplots(ncols=2, sharex=True, sharey=True)
-        line = np.linspace(-max_r, max_r, n_bins)
-        
-        counts = np.histogram2d(combo.data.evt_xs[mask], combo.data.evt_ys[mask], (line, line))[0].astype(float)
-        pred = np.histogram2d(combo.data.evt_xs[mask], combo.data.evt_ys[mask], (line, line), weights=evt_probs[mask])[0].astype(float)/counts
         counts /= np.nanmax(counts) * 0.005
         image = np.log(1+counts)
         ax1.pcolormesh(line, line, np.flip(np.transpose(image), axis=1), vmin=0)
-        ax1.set_title(f"Data (DU {det})")
+        ax1.set_title(f"Data")
         
         pred[~np.isfinite(pred)] = 0
         pred /= np.nanmax(pred) * 0.005
@@ -377,19 +381,6 @@ class Fitter:
         for key in evt_probs:
             evt_probs[key] /= flux_norms[key]
 
-
-
-
-        fig, axs = plt.subplots(ncols=2)
-        counts = np.histogram2d(combo.data.evt_xs, combo.data.evt_ys, (50,50))[0].astype(float)
-        probs = np.histogram2d(combo.data.evt_xs, combo.data.evt_ys, (50,50), weights=evt_probs[combo.data_key])[0] / counts
-        axs[0].imshow(counts)
-        axs[1].imshow(probs)
-        fig.savefig("out.png")
-
-
-
-
         if return_array:
             log_prob = np.log(np.concatenate(list(evt_probs.values())))
         else:
@@ -399,16 +390,11 @@ class Fitter:
 
         if not return_array and not np.isfinite(log_prob):
             problem = ""
-            if self.fit_data.param_to_index("f", "pbkg") is not None:
-                if params[self.fit_data.param_to_index("f", "pbkg")] == 0:
-                    if np.any([np.any(data.evt_bg_chars==1) for data in self.datas]):
-                        problem = "You have events with bg_prob=1 in your data set, and the particle background flux is zero. This probably caused the problem. Try removing these events"
-            if problem == "":
-                for name in self.fit_props.guess_quf:
-                    if self.fit_data.param_to_index("f", name) is not None and params[self.fit_data.param_to_index("f", name)] == 0:
-                        problem = f"Your flux for source {name} is equal to zero."
-                    
+            for name in self.fit_props.guess_quf:
+                if self.fit_data.param_to_index("f", name) is not None and params[self.fit_data.param_to_index("f", name)] == 0:
+                    problem = f"Your flux for source {name} is equal to zero."
+            
             param_str = "\n".join([f"{self.fit_data.index_to_param(i)}: {params[i]}" for i in range(len(params))])
-            raise Exception(f"The log prob was not finite ({log_prob}) with parameters\n{param_str}\nThis happens when all your sources predict zero flux in a region of parameter space where at least one event was detected.\n\n{problem}")
+            raise Exception(f"The log prob was not finite ({log_prob}) with parameters\n{param_str}\nThis happens when all your sources predict zero weight in a region of parameter space where at least one event was detected. Perhaps your spatial, temporal, or spectral weights are negative or zero? \n\n{problem}")
         
         return log_prob

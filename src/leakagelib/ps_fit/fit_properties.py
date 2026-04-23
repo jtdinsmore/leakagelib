@@ -25,6 +25,7 @@ class FitProperties:
         for source_name, source in fit_settings.sources.items():
             for det in fit_settings.detectors[source_name]:
                 for obs_id in fit_settings.obs_ids[source_name]:
+                    # Find the data set
                     for data_index, data in enumerate(fit_settings.datas):
                         if data.obs_id == obs_id and data.det == det:
                             break
