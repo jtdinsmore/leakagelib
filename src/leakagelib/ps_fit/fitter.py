@@ -186,18 +186,18 @@ class Fitter:
         pred = np.histogram2d(combo.data.evt_xs[mask], combo.data.evt_ys[mask], (line, line), weights=evt_probs[mask])[0].astype(float)/counts
         counts /= np.nanmax(counts) * 0.005
         image = np.log(1+counts)
-        ax1.pcolormesh(line, line, np.transpose(image), vmin=0)
+        ax1.pcolormesh(line, line, np.flip(np.transpose(image), axis=1), vmin=0)
         ax1.set_title(f"Data (DU {det})")
         
         pred[~np.isfinite(pred)] = 0
         pred /= np.nanmax(pred) * 0.005
         image = np.log(1+pred)
-        ax2.pcolormesh(line, line, np.transpose(image), vmin=0)
+        ax2.pcolormesh(line, line, np.flip(np.transpose(image), axis=1), vmin=0)
         ax2.set_title("Prediction")
 
         for ax in fig.axes:
             ax.set_aspect("equal")
-            ax.set_xlim(line[0], line[-1])
+            ax.set_xlim(line[-1], line[0])
             ax.set_ylim(line[0], line[-1])
 
         return fig
@@ -376,6 +376,19 @@ class Fitter:
 
         for key in evt_probs:
             evt_probs[key] /= flux_norms[key]
+
+
+
+
+        fig, axs = plt.subplots(ncols=2)
+        counts = np.histogram2d(combo.data.evt_xs, combo.data.evt_ys, (50,50))[0].astype(float)
+        probs = np.histogram2d(combo.data.evt_xs, combo.data.evt_ys, (50,50), weights=evt_probs[combo.data_key])[0] / counts
+        axs[0].imshow(counts)
+        axs[1].imshow(probs)
+        fig.savefig("out.png")
+
+
+
 
         if return_array:
             log_prob = np.log(np.concatenate(list(evt_probs.values())))

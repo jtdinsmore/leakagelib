@@ -395,7 +395,7 @@ class IXPEData:
             ys = ((decs - coly.coord_ref_value) / coly.coord_inc + coly.coord_ref_point) * IXPE_PIXEL_SIZE
 
         self.expmap = RegularGridInterpolator((xs, ys), np.transpose(image), bounds_error=False, fill_value=0)
-        self.evt_exposures = self.expmap(self.evt_xs-offset[0], self.evt_ys-offset[0])
+        self.evt_exposures = self.expmap((self.evt_xs-offset[0], self.evt_ys-offset[1]))
 
     def get_particle_flux_estimate(self):
         """
