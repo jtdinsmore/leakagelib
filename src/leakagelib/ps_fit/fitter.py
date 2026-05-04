@@ -70,8 +70,15 @@ class Fitter:
             Returns the figure object if fig_name was None, otherwise returns None.
         """
 
-        n_images = len(self.fit_props.guess_quf)+1
+
+
         data_key = self.fit_props.combos[0].data_key
+
+        n_images = 0
+        for combo in self.fit_props.combos:
+            if combo.data_key != data_key: continue
+            n_images += 1
+        n_images += 1
 
         fig, axs = plt.subplots(nrows=n_images, ncols=2, figsize=(6,3*n_images), sharex=True, sharey=True)
         i = 0
@@ -95,6 +102,8 @@ class Fitter:
                 stacked_roi = np.copy(combo.roi)
             else:
                 stacked_roi += combo.roi
+
+        fig.suptitle(f"Sources for detector {data_key[0]}", y=1.05)
 
         # Show ROI
         axs[-1,0].pcolormesh(pixel_centers, pixel_centers, np.flip(combo.roi, axis=1), vmin=0, cmap="viridis")
@@ -368,7 +377,7 @@ class Fitter:
                 u = new_u
             if combo.model_fn is not None:
                 q, u = combo.model_fn(combo.data.evt_times, self.fit_data, params)
-            combo.polarize_net((np.mean(q), np.mean(u)))
+            combo.polarize_net((np.mean(q), np.mean(u))) # If the qs and us are arrays, use the mean for the sake of leakace prediction
 
             probs = combo.get_log_prob(q, u)
             

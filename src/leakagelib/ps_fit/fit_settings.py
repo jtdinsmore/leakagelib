@@ -68,10 +68,7 @@ class FitSettings:
 
     def _check_source_dim(self, source):
         if len(self.sources) == 0: return
-        standard_text = "LeakageLib requires each source to have the same dimensions and pixel size."\
-        " If you are creating a source using your own Source object, add that source to the FitSettings" \
-        " first. Make all `add_background` or `add_point_source` calls afterwards. They should use the" \
-        " same image properties as the source you created."
+        standard_text = "LeakageLib requires each source to have the same dimensions and pixel size. If you are creating a source using your own Source object, add that source to the FitSettings first. Make all `add_background`, `add_point_source`, or ROI-setting calls afterwards. They should use the same image properties as the source you created."
 
         if len(self.pixel_centers) != len(source.pixel_centers):
             raise Exception(f"This source does not have the same image size as previous source(s). {standard_text}")

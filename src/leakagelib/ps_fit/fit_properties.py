@@ -107,7 +107,7 @@ class FitProperties:
         for source in fit_settings.sources.values():
             if common_pixel_size is not None:
                 if np.abs(source.pixel_size - common_pixel_size) > 1e-4:
-                    raise Exception(f"Your sources do not all have the same pixel size. Please make your source images all have the same pixel scale.")
+                    raise Exception(f"Your sources do not all have the same pixel size. Please make your source images all have the same pixel size.")
                 if source.source.shape != common_source_dimensions:
                     raise Exception(f"Your sources do not all have the same dimensions. Please make your source images all have the same size.")
             common_pixel_size = source.pixel_size

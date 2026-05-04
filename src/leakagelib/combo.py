@@ -96,6 +96,9 @@ class PSFSourceCombo:
         return np.sum(array * self.roi) / np.sum(self.roi)
 
     def _prepare_psf(self):
+        """
+        Update all the stored images for PSF prediction
+        """
         if self.source.is_uniform:
             self.d_i_i = np.copy(self.source.source)
             self.d_zs_i = np.zeros_like(self.source.source)
@@ -118,6 +121,9 @@ class PSFSourceCombo:
             self.d_yk_i = _convolve(self.source.source, self.psf.d_yk, fix_edges=False)
 
     def _prepare_source_polarization(self):
+        """
+        Update all the stored images for predicting leakage patterns
+        """
         if self.source.is_point_source:
             q_src, u_src = np.sum(self.source.q_map), np.sum(self.source.u_map)
             self.d_i_q = self.d_i_i * q_src
@@ -159,26 +165,52 @@ class PSFSourceCombo:
             self.d_us_u = self.d_us_i * 0
             self.d_uk_u = self.d_uk_i * 0
         else:
-            self.d_i_q = _convolve(self.source.source * self.source.q_map, self.psf.psf)
-            self.d_i_u = _convolve(self.source.source * self.source.u_map, self.psf.psf)
-            
-            self.d_zs_q = _convolve(self.source.source * self.source.q_map, self.psf.d_zs, fix_edges=False)
-            self.d_zk_q = _convolve(self.source.source * self.source.q_map, self.psf.d_zk, fix_edges=False)
-            self.d_xk_q = _convolve(self.source.source * self.source.q_map, self.psf.d_xk, fix_edges=False)
-            self.d_yk_q = _convolve(self.source.source * self.source.q_map, self.psf.d_yk, fix_edges=False)
-            
-            self.d_zs_u = _convolve(self.source.source * self.source.u_map, self.psf.d_zs, fix_edges=False)
-            self.d_zk_u = _convolve(self.source.source * self.source.u_map, self.psf.d_zk, fix_edges=False)
-            self.d_xk_u = _convolve(self.source.source * self.source.u_map, self.psf.d_xk, fix_edges=False)
-            self.d_yk_u = _convolve(self.source.source * self.source.u_map, self.psf.d_yk, fix_edges=False)
-            
-            self.d_qs_q = _convolve(self.source.source * self.source.q_map, self.psf.d_qs, fix_edges=False)
-            self.d_qk_q = _convolve(self.source.source * self.source.q_map, self.psf.d_qk, fix_edges=False)
-            
-            self.d_us_u = _convolve(self.source.source * self.source.u_map, self.psf.d_us, fix_edges=False)
-            self.d_uk_u = _convolve(self.source.source * self.source.u_map, self.psf.d_uk, fix_edges=False)
+            numbers = [float, np.float64, np.float32, int]
+            if type(self.source.q_map) in numbers and type(self.source.u_map) in numbers:
+                # Uniform source polarization factors out of the convolution
+                self.d_i_q = self.d_i_i * self.source.q_map
+                self.d_i_u = self.d_i_i * self.source.u_map
+                
+                self.d_zs_q = self.d_zs_i * self.source.q_map
+                self.d_zk_q = self.d_zk_i * self.source.q_map
+                self.d_xk_q = self.d_xk_i * self.source.q_map
+                self.d_yk_q = self.d_yk_i * self.source.q_map
+                
+                self.d_zs_u = self.d_zs_i * self.source.u_map
+                self.d_zk_u = self.d_zk_i * self.source.u_map
+                self.d_xk_u = self.d_xk_i * self.source.u_map
+                self.d_yk_u = self.d_yk_i * self.source.u_map
+                
+                self.d_qs_q = self.d_qs_i * self.source.q_map
+                self.d_qk_q = self.d_qk_i * self.source.q_map
+                
+                self.d_us_u = self.d_us_i * self.source.u_map
+                self.d_uk_u = self.d_uk_i * self.source.u_map
+            else:
+                # Non-uniform source polarization
+                self.d_i_q = _convolve(self.source.source * self.source.q_map, self.psf.psf)
+                self.d_i_u = _convolve(self.source.source * self.source.u_map, self.psf.psf)
+                
+                self.d_zs_q = _convolve(self.source.source * self.source.q_map, self.psf.d_zs, fix_edges=False)
+                self.d_zk_q = _convolve(self.source.source * self.source.q_map, self.psf.d_zk, fix_edges=False)
+                self.d_xk_q = _convolve(self.source.source * self.source.q_map, self.psf.d_xk, fix_edges=False)
+                self.d_yk_q = _convolve(self.source.source * self.source.q_map, self.psf.d_yk, fix_edges=False)
+                
+                self.d_zs_u = _convolve(self.source.source * self.source.u_map, self.psf.d_zs, fix_edges=False)
+                self.d_zk_u = _convolve(self.source.source * self.source.u_map, self.psf.d_zk, fix_edges=False)
+                self.d_xk_u = _convolve(self.source.source * self.source.u_map, self.psf.d_xk, fix_edges=False)
+                self.d_yk_u = _convolve(self.source.source * self.source.u_map, self.psf.d_yk, fix_edges=False)
+                
+                self.d_qs_q = _convolve(self.source.source * self.source.q_map, self.psf.d_qs, fix_edges=False)
+                self.d_qk_q = _convolve(self.source.source * self.source.q_map, self.psf.d_qk, fix_edges=False)
+                
+                self.d_us_u = _convolve(self.source.source * self.source.u_map, self.psf.d_us, fix_edges=False)
+                self.d_uk_u = _convolve(self.source.source * self.source.u_map, self.psf.d_uk, fix_edges=False)
 
     def _prepare_event_data(self):
+        """
+        Get the expected leakage contribution for each event
+        """
         poses = (self.data.evt_ys, self.data.evt_xs)
         lines = (self.source.pixel_centers, self.source.pixel_centers)
         self.evt_d_i_i = RegularGridInterpolator(lines, self.d_i_i, fill_value=0, bounds_error=False)(poses)
@@ -237,16 +269,15 @@ class PSFSourceCombo:
             self._roi_weighted_mean(self.d_i_i) +
 
             sigma_plus * self._roi_weighted_mean(self.d_zs_i) +
-            k_plus * self._roi_weighted_mean(self.d_zk_i) +
+            k_plus * self._roi_weighted_mean(self.d_zk_i)
+        )
+        normalization += self.evt_mus/2 * (
+            sigma_minus * self._roi_weighted_mean(self.d_qs_q) +
+            k_minus * self._roi_weighted_mean(self.d_qk_q) +
 
-            self.evt_mus/2 * (
-                sigma_minus * self._roi_weighted_mean(self.d_qs_q) +
-                k_minus * self._roi_weighted_mean(self.d_qk_q) +
-
-                sigma_minus * self._roi_weighted_mean(self.d_us_u) +
-                k_minus * self._roi_weighted_mean(self.d_uk_u)
-            )
-        ) # NB it's guaranteed that all sources have the same size
+            sigma_minus * self._roi_weighted_mean(self.d_us_u) +
+            k_minus * self._roi_weighted_mean(self.d_uk_u)
+        )
 
         out = (
             self.evt_d_i_i +
