@@ -12,7 +12,7 @@ LeakageLib documentation
 2. A neural net which assigns each event a likelihood of representing a particle.
 3. Software to predict polarization leakage patters
 
-For details and examples, please see the "Polarization fitting," "Background particle weighting," and "Leakage Prediction" pages. This site also provides full API documentation of `LeakageLib`
+For details and examples, please see the "Polarization fitting" and "Leakage Prediction" pages. This site also provides full API documentation of `LeakageLib`
 
 .. toctree::
    :maxdepth: 2
@@ -20,7 +20,6 @@ For details and examples, please see the "Polarization fitting," "Background par
 
    installation
    fitting
-   background_estimation
    leakage_prediction
    faq
    leakagelib

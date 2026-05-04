@@ -1,8 +1,7 @@
 import numpy as np
 from astropy.io import fits
 from scipy.ndimage import rotate
-from scipy.signal import convolve
-from .funcs import *
+from .funcs import _convolve, super_zoom, KERNEL_ZS, KERNEL_QS, KERNEL_US, KERNEL_ZK, KERNEL_QK, KERNEL_UK, KERNEL_XK, KERNEL_YK
 from .settings import *
 
 GROUND_BLUR = 2#2.45# Arcsec
@@ -186,7 +185,7 @@ class PSF:
             xs, ys = np.meshgrid(self.pixel_centers, self.pixel_centers)
             blur = np.exp(-(xs*xs + ys*ys) / (2 * sigma**2)) # Gaussian
             blur /= np.sum(blur)
-            self.psf = convolve(self.unblurred_psf, blur, mode="same")
+            self.psf = _convolve(self.unblurred_psf, blur)
 
         # Compute derivatives
         self._compute_kernels()
@@ -202,8 +201,7 @@ class PSF:
         """
         # Blur
         kernel = np.copy(kernel) / np.sum(kernel)
-        flat = convolve(np.ones_like(self.unblurred_psf), kernel, mode="same")
-        self.psf = convolve(self.unblurred_psf, kernel, mode="same") / flat
+        self.psf = _convolve(self.unblurred_psf, kernel)
 
         # Compute derivatives
         self._compute_kernels()
@@ -255,14 +253,14 @@ class PSF:
         '''
         Compute derivatives of the PSF.
         '''
-        self.d_zs = convolve(self.psf, KERNEL_ZS / self.pixel_width**2, mode="same") / np.nansum(self.psf)
-        self.d_qs = convolve(self.psf, KERNEL_QS / self.pixel_width**2, mode="same") / np.nansum(self.psf)
-        self.d_us = convolve(self.psf, KERNEL_US / self.pixel_width**2, mode="same") / np.nansum(self.psf)
-        self.d_zk = convolve(self.psf, KERNEL_ZK / self.pixel_width**4, mode="same") / np.nansum(self.psf)
-        self.d_qk = convolve(self.psf, KERNEL_QK / self.pixel_width**4, mode="same") / np.nansum(self.psf)
-        self.d_uk = convolve(self.psf, KERNEL_UK / self.pixel_width**4, mode="same") / np.nansum(self.psf)
-        self.d_xk = convolve(self.psf, KERNEL_XK / self.pixel_width**4, mode="same") / np.nansum(self.psf)
-        self.d_yk = convolve(self.psf, KERNEL_YK / self.pixel_width**4, mode="same") / np.nansum(self.psf)
+        self.d_zs = _convolve(self.psf, KERNEL_ZS / self.pixel_width**2, fix_edges=False) / np.nansum(self.psf)
+        self.d_qs = _convolve(self.psf, KERNEL_QS / self.pixel_width**2, fix_edges=False) / np.nansum(self.psf)
+        self.d_us = _convolve(self.psf, KERNEL_US / self.pixel_width**2, fix_edges=False) / np.nansum(self.psf)
+        self.d_zk = _convolve(self.psf, KERNEL_ZK / self.pixel_width**4, fix_edges=False) / np.nansum(self.psf)
+        self.d_qk = _convolve(self.psf, KERNEL_QK / self.pixel_width**4, fix_edges=False) / np.nansum(self.psf)
+        self.d_uk = _convolve(self.psf, KERNEL_UK / self.pixel_width**4, fix_edges=False) / np.nansum(self.psf)
+        self.d_xk = _convolve(self.psf, KERNEL_XK / self.pixel_width**4, fix_edges=False) / np.nansum(self.psf)
+        self.d_yk = _convolve(self.psf, KERNEL_YK / self.pixel_width**4, fix_edges=False) / np.nansum(self.psf)
         self.psf = self.psf / np.nansum(self.psf)
 
     def save(self, directory, header=None):

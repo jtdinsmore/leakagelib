@@ -19,7 +19,9 @@ extensions = [
     "sphinx.ext.autosummary",
     "sphinx.ext.napoleon",
     "nbsphinx",
+    'sphinx.ext.mathjax',   # for HTML rendering
 ]
+mathjax_path = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"
 
 templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
@@ -41,3 +43,23 @@ autodoc_default_options = {
 html_theme = 'shibuya'
 html_static_path = ['_static']
 html_baseurl = "https://jack-dinsmore.github.io/leakagelib"
+
+mathjax3_config = {
+    "tex": {
+        "inlineMath": [['\\(', '\\)']],
+        "displayMath": [['\\[', '\\]']],
+    }
+}
+
+# LaTeX (PDF) output configuration
+latex_elements = {
+    'preamble': r'''
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+'''
+}
+
+# Optional: if you want Sphinx to use LaTeX syntax consistently
+primary_domain = None
+highlight_language = 'none'
