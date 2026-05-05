@@ -3,7 +3,24 @@ from regions import Regions, PixCoord
 from astropy.coordinates import SkyCoord
 from astropy.wcs import WCS
 
-IXPE_PIXEL_SIZE = 2.6
+IXPE_PIXEL_SIZE = 2.6 # Arcseconds
+REGION_PIXEL = 0.1 # Arcseconds
+
+def stretch_image(text):
+    # Take all coordinates and rescale to 0.1 arcsec pixels
+    output_text = ""
+    for line in text.split("\n"):
+        if "circle" in line or "box" in line or "ellipse" in line or "polygon" in line:
+            start_index = line.find('(')+1
+            end_index = line.find(')')
+            args = line[start_index:end_index].split(",")
+            args = [float(a) for a in args]
+            scaled_args = [a * IXPE_PIXEL_SIZE / REGION_PIXEL for a in args]
+            if "box" in line or "ellipse" in line:
+                scaled_args[-1] = args[-1]
+            line = line[:start_index] + ','.join([str(a) for a in scaled_args]) + line[end_index:]
+        output_text += line + '\n'
+    return output_text
 
 class Region:
     """
@@ -25,6 +42,7 @@ class Region:
             self.fmt = "fk5"
         else:
             self.fmt = "image"
+            text = stretch_image(text)
         if assert_format is not None and assert_format != self.fmt:
             raise Exception(f"The region {filename} was supposed to be in {assert_format} but it was actually in {self.fmt} format. Please change it.")
         text = self.fmt + ";\n" + text
@@ -47,7 +65,7 @@ class Region:
                     if hasattr(r, "vertices"):
                         center = r.vertices[0]
                         break
-            pixel_size = 1/3600
+            pixel_size = REGION_PIXEL / 3600 # degrees
             radius = 16/60
             npix = int(2*radius / pixel_size)
             if npix % 2 == 0:
@@ -64,21 +82,23 @@ class Region:
         Check if the coordinate x, y is contained in the region. If the region is physical-format, x and y should be in units of pixels. If it's in fk5 format, the units should be degrees.
         """
         if self.fmt == "image":
-            coord = PixCoord(x=x, y=y)
+            coord = PixCoord(
+                x=x * (IXPE_PIXEL_SIZE / REGION_PIXEL),
+                y=y * (IXPE_PIXEL_SIZE / REGION_PIXEL)
+            )
             return self.region.contains(coord)
         else:
             coord = SkyCoord(ra=x, dec=y, unit="deg", frame="fk5")
             return self.region.contains(coord, self.wcs)
     
     def area(self):
+        pixel_area = (REGION_PIXEL / 3600)**2 # Square degrees
         if self.fmt == "image":
             reg = self.region
-            pixel_center = 300
-            pixel_area = (IXPE_PIXEL_SIZE / 3600)**2 # Square degrees
+            pixel_center = 300 * (IXPE_PIXEL_SIZE / REGION_PIXEL)
         else:
             reg = self.region.to_pixel(self.wcs)
             pixel_center = self.wcs.wcs.crpix[0]
-            pixel_area = self.wcs.wcs.cdelt[1]**2 # Square degrees
         line = np.arange(2*pixel_center)
         xs, ys = np.meshgrid(line, line)
         coords = PixCoord(x=xs, y=ys)
