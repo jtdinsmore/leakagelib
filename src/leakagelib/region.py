@@ -4,7 +4,7 @@ from astropy.coordinates import SkyCoord
 from astropy.wcs import WCS
 
 IXPE_PIXEL_SIZE = 2.6 # Arcseconds
-REGION_PIXEL = 0.1 # Arcseconds
+REGION_PIXEL = 1 # Arcseconds
 
 def stretch_image(text):
     # Take all coordinates and rescale to 0.1 arcsec pixels
