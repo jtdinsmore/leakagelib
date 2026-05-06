@@ -35,6 +35,22 @@ def sky_to_ra_dec(x, y, xcol, ycol):
     )
     return ra, dec
 
+def subsample_region(line_x, line_y, reg_src, n=4):
+    # Calculate whether an image is inside a region
+    subsample_edges_x = np.linspace(-0.5, 0.5, n+1) * (line_x[1] - line_x[0])
+    subsample_edges_y = np.linspace(-0.5, 0.5, n+1) * (line_y[1] - line_y[0])
+    subsample_centers_x = (subsample_edges_x[1:] + subsample_edges_x[:-1]) / 2
+    subsample_centers_y = (subsample_edges_y[1:] + subsample_edges_y[:-1]) / 2
+    sub_line_x = (line_x[None, :] + subsample_centers_x[:, None]).reshape(-1)
+    sub_line_y = (line_y[None, :] + subsample_centers_y[:, None]).reshape(-1)
+
+    xs, ys = np.meshgrid(sub_line_x, sub_line_y, indexing='ij')
+    mask = reg_src.contains(xs, ys).astype(float)
+    mask = mask.reshape(n, len(line_x), n, len(line_y)).transpose(1, 0, 3, 2)
+
+    img = mask.mean(axis=(1, 3))
+    return img
+
 class ARF:
     def __init__(self, filename):
         with fits.open(filename) as hdul:
@@ -89,8 +105,9 @@ def make_merged_image(args):
         evt_ras = np.concatenate([evt_ras, these_ras[mask]])
         evt_decs = np.concatenate([evt_decs, these_decs[mask]])
         evt_weights = np.concatenate([evt_weights, these_weights])
+    evt_weights /= np.nanmean(evt_weights) # Rescale weights to have average 1
 
-    # Background subtract
+    # Get the background SB
     bkg_sb = 0 # Background flux per square arcsec
     if args.reg_bkg is not None:
         reg_bkg = leakagelib.Region(args.reg_bkg, assert_format="fk5")
@@ -122,9 +139,17 @@ def make_merged_image(args):
         halfwidth = float(args.width) / IXPE_PIXEL_SIZE/ 2
     pixel_edges = np.arange(0, halfwidth, PIXEL_WIDTH/IXPE_PIXEL_SIZE) + PIXEL_WIDTH/IXPE_PIXEL_SIZE / 2
     pixel_edges = np.concatenate([-np.flip(pixel_edges), pixel_edges])
+    pixel_centers = (pixel_edges[1:] + pixel_edges[:-1]) / 2
     image = np.histogram2d(ixpe_xs, ixpe_ys, (pixel_edges, pixel_edges), weights=evt_weights[mask])[0]
-    image -= bkg_sb * PIXEL_WIDTH**2
-    image = blur(image, 1)
+
+    # Background subtract
+    if args.reg_src is not None:
+        reg_src = leakagelib.Region(args.reg_src, assert_format="fk5")
+        x_ra = -(pixel_centers + float(args.centerx)) * IXPE_PIXEL_SIZE / (stretch * 3600) + ra_zero
+        y_dec = (pixel_centers + float(args.centery)) * IXPE_PIXEL_SIZE / 3600 + dec_zero
+        bkg_mask = subsample_region(x_ra, y_dec, reg_src)
+        image -= bkg_sb * PIXEL_WIDTH**2 * bkg_mask
+    image = blur(image, 1.5)
     image = np.maximum(image, 0)
     image = np.transpose(image)
 
