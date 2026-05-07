@@ -50,6 +50,7 @@ if __name__ == "__main__":
     parser.add_argument('--expmap', help="Chandra merged observation ARF (Optional)")
     parser.add_argument("--output", required=True, help="Name of the output file")
     parser.add_argument("--width", type=float, help="Width of the image, in arcseconds. Default: as big as the CXO image (Optional)")
+    parser.add_argument("--blur", type=float, default=4, help="Standard deviation of a blur to be applied, in arcseconds. Default: 4")
     parser.add_argument("--elow", default=2, type=float, help="Low end of the energy range (keV). (Default: 2)")
     parser.add_argument("--ehigh", default=8, type=float, help="High end of the energy range (keV). (Default: 8)")
     parser.add_argument("--centerx", default=300, type=float, help="IXPE pixel on which the fit will be centered in the x direction. (Default: 300)")
