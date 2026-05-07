@@ -105,7 +105,6 @@ def make_merged_image(args):
         evt_ras = np.concatenate([evt_ras, these_ras[mask]])
         evt_decs = np.concatenate([evt_decs, these_decs[mask]])
         evt_weights = np.concatenate([evt_weights, these_weights])
-    evt_weights /= np.nanmean(evt_weights) # Rescale weights to have average 1
 
     # Get the background SB
     bkg_sb = 0 # Background flux per square arcsec
@@ -149,7 +148,8 @@ def make_merged_image(args):
         y_dec = (pixel_centers + float(args.centery)) * IXPE_PIXEL_SIZE / 3600 + dec_zero
         bkg_mask = subsample_region(x_ra, y_dec, reg_src)
         image -= bkg_sb * PIXEL_WIDTH**2 * bkg_mask
-    image = blur(image, 1.5)
+    blur_pix = args.blur / PIXEL_WIDTH
+    image = blur(image, blur_pix)
     image = np.maximum(image, 0)
     image = np.transpose(image)
 
