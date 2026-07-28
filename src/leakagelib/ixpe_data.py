@@ -146,6 +146,9 @@ class IXPEData:
         for data in detectors:
             logger.info(f"\t{data.filename}")
 
+        # Sort by detector number
+        detectors.sort(key=lambda x: x.det)
+
         return detectors
 
     def __init__(self, file_names):

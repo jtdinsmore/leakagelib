@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
+from scipy.interpolate import RegularGridInterpolator
 import logging
 from .fit_data import FitData
 from .fit_result import FitResult, get_hess
@@ -53,7 +54,7 @@ class Fitter:
                 out += f"{source_name}:\tf\t{self.fit_data.fixed_flux[source_name]}\n"
         return out
 
-    def display_sources(self, data_pixel_size=None):
+    def display_sources(self, data_pixel_size=None, obs_id=None, det=None):
         """
         Display the sources for debugging purposes
 
@@ -65,14 +66,23 @@ class Fitter:
         data_pixel_size: float, optional
             Size of the spatial bins in arcseconds to use when displaying the data. Leave blank to use the native PSF pixel size.
 
+        obs_id: str, optional
+            Observation ID to display. Default: whichever is first in the data list.
+
+        det: int, optional
+            Detector to display. Default: whichever is first in the data list.
+
         Returns
         -------
             Returns the figure object if fig_name was None, otherwise returns None.
         """
 
-
-
-        data_key = self.fit_props.combos[0].data_key
+        for combo in self.fit_props.combos:
+            if det is not None and combo.data.det != det: continue
+            if obs_id is not None and combo.obs_id != obs_id: continue
+            data_key = combo.data_key
+            roi = combo.roi
+            break
 
         n_images = 0
         for combo in self.fit_props.combos:
@@ -82,13 +92,14 @@ class Fitter:
 
         fig, axs = plt.subplots(nrows=n_images, ncols=2, figsize=(6,3*n_images), sharex=True, sharey=True)
         i = 0
-        stacked_roi = None
         for combo in self.fit_props.combos:
             if combo.data_key != data_key: continue
             ax_row = axs[i]
-            image = np.flip(np.log(1+combo.source.source), axis=1)
+            image = np.flip(combo.source.source, axis=1)
+            # image = np.log(1+image)
             convolved_image = combo.source.convolve_psf(combo.psf)
-            convolved_image = np.flip(np.log(1+convolved_image), axis=1)
+            convolved_image = np.flip(convolved_image, axis=1)
+            # convolved_image = np.log(1+convolved_image)
             pixel_centers = combo.source.pixel_centers
             ax_row[0].pcolormesh(pixel_centers, pixel_centers, image, vmin=0, cmap="viridis")
             ax_row[1].pcolormesh(pixel_centers, pixel_centers, convolved_image, vmin=0, cmap="viridis")
@@ -98,15 +109,10 @@ class Fitter:
             ax_row[1].set_title(f"{combo.name} w/ PSF")
             i += 1
 
-            if stacked_roi is None:
-                stacked_roi = np.copy(combo.roi)
-            else:
-                stacked_roi += combo.roi
-
-        fig.suptitle(f"Sources for detector {data_key[0]}", y=1.05)
+        fig.suptitle(f"Sources for detector {data_key}", y=1.05)
 
         # Show ROI
-        axs[-1,0].pcolormesh(pixel_centers, pixel_centers, np.flip(combo.roi, axis=1), vmin=0, cmap="viridis")
+        axs[-1,0].pcolormesh(pixel_centers, pixel_centers, np.flip(roi, axis=1), vmin=0, cmap="viridis")
         axs[-1,0].set_aspect("equal")
         axs[-1,0].set_title("ROI")
 
@@ -114,6 +120,7 @@ class Fitter:
         axs[-1,0].set_ylabel("y [arcsec]")
 
         delta = (pixel_centers[1] - pixel_centers[0]) if data_pixel_size is None else data_pixel_size
+
         x_line = np.arange(np.min(-combo.data.evt_xs), np.max(-combo.data.evt_xs), delta)
         y_line = np.arange(np.min(combo.data.evt_ys), np.max(combo.data.evt_ys), delta)
         x_centers = (x_line[1:] + x_line[:-1]) / 2
@@ -182,36 +189,47 @@ class Fitter:
 
         first_combo = self.fit_props.combos[0]
         max_r = np.max(np.sqrt(first_combo.data.evt_xs**2 + first_combo.data.evt_ys**2))
-        line = np.linspace(-max_r, max_r, n_bins+1)
-        counts = np.zeros((n_bins, n_bins))
+        edges = np.linspace(-max_r, max_r, n_bins+1)
+        centers = (edges[1:] + edges[:-1]) / 2
+        image = np.zeros((n_bins, n_bins))
         pred = np.zeros((n_bins, n_bins))
 
         for combo in self.fit_props.combos:
             if combo.particles: continue
-            f = self.fit_data.param_to_value(params, "f", combo.name)
+
+            # Get the data necessary to make the flux prediction
+            roi_interpolator = RegularGridInterpolator((combo.source.pixel_centers, combo.source.pixel_centers), combo.roi, fill_value=0, bounds_error=False)
+            this_roi = roi_interpolator(tuple(np.meshgrid(centers, centers)))
             combo.polarize_net((0, 0))
+            f = self.fit_data.param_to_value(params, "f", combo.name)
             evt_probs = combo._get_event_p_r_given_phi() * f
+
+            # Get the data and prediction images
             mask = combo.data.evt_bg_chars < 0.2
-            counts = np.histogram2d(combo.data.evt_xs[mask], combo.data.evt_ys[mask], (line, line))[0].astype(float)
-            pred += np.histogram2d(combo.data.evt_xs[mask], combo.data.evt_ys[mask], (line, line), weights=evt_probs[mask])[0].astype(float)
-        pred /= counts
+            this_image = np.histogram2d(combo.data.evt_xs[mask], combo.data.evt_ys[mask], (edges, edges))[0].astype(float)
+            this_pred = np.histogram2d(combo.data.evt_xs[mask], combo.data.evt_ys[mask], (edges, edges), weights=evt_probs[mask])[0].astype(float) / this_image
+            this_pred *= this_roi
+
+            # Add this combination to the final result
+            image += this_image
+            pred[np.isfinite(this_pred)] += this_pred[np.isfinite(this_pred)]
 
         fig, (ax1, ax2) = plt.subplots(ncols=2, sharex=True, sharey=True)
-        counts /= np.nanmax(counts) * 0.005
-        image = np.log(1+counts)
-        ax1.pcolormesh(line, line, np.flip(np.transpose(image), axis=1), vmin=0)
+        image /= np.nanmax(image) * 0.005
+        # image = np.log(1+counts)
+        ax1.pcolormesh(edges, edges, np.flip(np.transpose(image), axis=1), vmin=0)
         ax1.set_title(f"Data")
         
         pred[~np.isfinite(pred)] = 0
         pred /= np.nanmax(pred) * 0.005
-        image = np.log(1+pred)
-        ax2.pcolormesh(line, line, np.flip(np.transpose(image), axis=1), vmin=0)
+        # pred = np.log(1+pred)
+        ax2.pcolormesh(edges, edges, np.flip(np.transpose(pred), axis=1), vmin=0)
         ax2.set_title("Prediction")
 
         for ax in fig.axes:
             ax.set_aspect("equal")
-            ax.set_xlim(line[-1], line[0])
-            ax.set_ylim(line[0], line[-1])
+            ax.set_xlim(edges[-1], edges[0])
+            ax.set_ylim(edges[0], edges[-1])
 
         return fig
 

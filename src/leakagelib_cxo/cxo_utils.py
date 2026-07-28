@@ -136,6 +136,7 @@ def make_merged_image(args):
         halfwidth = max(np.max(np.abs(ixpe_xs)), np.max(np.abs(ixpe_ys)))
     else:
         halfwidth = float(args.width) / IXPE_PIXEL_SIZE/ 2
+
     pixel_edges = np.arange(0, halfwidth, PIXEL_WIDTH/IXPE_PIXEL_SIZE) + PIXEL_WIDTH/IXPE_PIXEL_SIZE / 2
     pixel_edges = np.concatenate([-np.flip(pixel_edges), pixel_edges])
     pixel_centers = (pixel_edges[1:] + pixel_edges[:-1]) / 2
@@ -168,6 +169,7 @@ def make_merged_image(args):
     del header["LONPOLE"]
     header["WCENTERX"] = args.centerx
     header["WCENTERY"] = args.centery
+    header["BUNIT"] = "Counts per pixel per expmap-value, background subtracted, blurred"
     try:
         fits.writeto(args.output, image, header, overwrite=args.clobber)
     except OSError:

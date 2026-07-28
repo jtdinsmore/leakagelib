@@ -48,8 +48,8 @@ class FitSettings:
         self.vignette_radial_bins = np.arange(0, max_radius, 0.05) # Radial bins to be used to get the vignetting map
         self.spatial_weight = True
         self.fixed_blur = 0
-        self.roi = None
         self.datas = datas
+        self.rois = [None for _ in range(len(datas))]
 
         self.sources = {}
         self.detectors = {}
@@ -470,57 +470,44 @@ class FitSettings:
         """
         self.fixed_blur = psf_sigma
 
-    def apply_roi(self, roi_image):
+    def apply_roi(self, roi_image, obs_id=None, det=None):
         """
         Provide the region of interest (ROI) to the fitter after data has been cut.
-        
-        Notes
-        -----
+
+        Parameters
+        ----------
+        roi_image : array-like
             The roi_image must have the same dimensions as source objects. If a source with a different size is already added to the fit, an error will be thrown. If those pre-loaded sources are point sources or background, solve this problem by simply applying the ROI first. If they are sources you created, then you need to make sure your sources and background have the same shape and pixel sizes.
+        obs_id : str (optional)
+            Observation ids to apply the ROI to. If not provided, the ROI will be applied to all observation IDs.
+        det : int (optional)
+            Detector to apply the ROI to. If not provided, the ROI will be applied to all detectors.
         """
+
+        roi_image = roi_image.astype(float)
 
         if len(self.sources) > 0:
             if len(self.pixel_centers) != roi_image.shape[0]:
                 raise Exception("The ROI image must have the same size as the source images. You can access the coordinates of each pixel are stored in FitSettings.pixel_centers.")
-        self.roi = roi_image
 
-        # Cut events outside the ROI
-        total_cut = 0
-        pixel_width = self.pixel_centers[1] - self.pixel_centers[0]
-        pixel_edges = np.append(self.pixel_centers - pixel_width/2, self.pixel_centers[-1] + pixel_width/2)
         for data_index, data in enumerate(self.datas):
-            # Cut everything outside the source array
-            ix = np.digitize(data.evt_xs, pixel_edges) - 1
-            iy = np.digitize(data.evt_ys, pixel_edges) - 1
-            cut_mask = ix < 0
-            cut_mask |= iy < 0
-            cut_mask |= ix >= len(self.pixel_centers)
-            cut_mask |= iy >= len(self.pixel_centers)
+            if obs_id is not None and data.obs_id != obs_id: continue
+            if det is not None and data.det != det: continue
+            if self.rois[data_index] is None:
+                self.rois[data_index] = np.copy(roi_image)
+            else:
+                self.rois[data_index] *= roi_image
 
-            # Cut everythign inside the source array but outside the ROI
-            cut_mask[~cut_mask] = roi_image[iy[~cut_mask], ix[~cut_mask]] < 1e-4
-
-            if np.sum(cut_mask) > 0:
-                total_cut += np.sum(cut_mask)
-                data.retain(~cut_mask)
-
-            # Remove weights already established
-            for name in self.sources.keys():
-                if self.spectral_weights[name] is not None:
-                    self.spectral_weights[name][data_index] = self.spectral_weights[name][data_index][~cut_mask]
-                if self.temporal_weights[name] is not None:
-                    self.temporal_weights[name][data_index] = self.temporal_weights[name][data_index][~cut_mask]
-                if self.spectral_mus[name] is not None:
-                    self.spectral_mus[name][data_index] = self.spectral_mus[name][data_index][~cut_mask]
-                if self.sweeps[name] is not None:
-                    self.sweeps[name][data_index] = self.sweeps[name][data_index][~cut_mask]
-
-        if total_cut > 0:
-            logger.warning(f"{total_cut} events were cut for being outside the region of interest.")
-
-    def apply_circular_roi(self, radius):
+    def apply_circular_roi(self, radius, obs_id=None, det=None):
         """
         Provide a circular ROI centered on the origin (radius in arcseconds).
+
+        Parameters
+        ----------
+        obs_id : str (optional)
+            Observation ids to apply the ROI to. If not provided, the ROI will be applied to all observation IDs.
+        det : int (optional)
+            Detector to apply the ROI to. If not provided, the ROI will be applied to all detectors.
         """
         if len(self.sources) == 0:
             pixel_width = 2.9729
@@ -532,14 +519,9 @@ class FitSettings:
 
         xs, ys = np.meshgrid(self.pixel_centers, self.pixel_centers)
         roi_image = xs**2 + ys**2 < radius**2
+        self.apply_roi(roi_image, obs_id, det)
 
-        if self.roi is None:
-            net_roi = roi_image.astype(float)
-        else:
-            net_roi = self.roi * roi_image.astype(float)
-        self.apply_roi(net_roi)
-
-    def apply_roi_cut(self, region, exclude=False):
+    def apply_roi_cut(self, region, exclude=False, obs_id=None, det=None):
         """
         Apply a region to the ROI. If the ROI is already created, this region will be and-ed with the existing ROI (that is, the final ROI will be the pixels which were already inside the previous ROI AND satisfy this region constraint).
 
@@ -549,6 +531,10 @@ class FitSettings:
             Path to the region file
         exclude : bool, optional
             Set to False to limit the ROI to this region. Set to True to exclude this region from the ROI. Default: false.
+        obs_id : str (optional)
+            Observation ids to apply the ROI to. If not provided, the ROI will be applied to all observation IDs.
+        det : int (optional)
+            Detector to apply the ROI to. If not provided, the ROI will be applied to all detectors.
         """
         if self.pixel_centers is None:
             raise Exception("You must call either apply_circular_roi or create a source before calling apply_roi_cut; the fitter needs to know how big the ROI is before applying the cut.")
@@ -562,12 +548,7 @@ class FitSettings:
         roi_image = reg.contains(xs,ys)
         if exclude:
             roi_image = ~roi_image
-
-        if self.roi is None:
-            net_roi = roi_image.astype(float)
-        else:
-            net_roi = self.roi * roi_image.astype(float)
-        self.apply_roi(net_roi)
+        self.apply_roi(roi_image, obs_id, det)
 
     def get_n_sources(self):
         """

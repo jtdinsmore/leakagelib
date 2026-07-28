@@ -50,7 +50,7 @@ class PSFSourceCombo:
         self.model_fn = fit_settings.model_fns[source_name]
 
         # Prepare ROI
-        self.roi = np.copy(fit_settings.roi)
+        self.roi = np.copy(fit_settings.rois[data_index])
         xs, ys = np.meshgrid(fit_settings.pixel_centers, fit_settings.pixel_centers)
 
         # Apply exposure map

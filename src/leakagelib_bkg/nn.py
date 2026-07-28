@@ -17,7 +17,3 @@ class Model:
         
     def __call__(self, tracks):
         return self.model(tracks).numpy()[:,0]
-    
-def account_for_prior(bg_probs):
-    ptcl = np.mean(bg_probs)
-    return ptcl*bg_probs / (ptcl*bg_probs + (1 - ptcl)*(1 - bg_probs))
