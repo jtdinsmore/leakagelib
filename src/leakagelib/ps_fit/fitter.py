@@ -395,9 +395,8 @@ class Fitter:
                 u = new_u
             if combo.model_fn is not None:
                 q, u = combo.model_fn(combo.data.evt_times, self.fit_data, params)
-            combo.polarize_net((np.mean(q), np.mean(u))) # If the qs and us are arrays, use the mean for the sake of leakace prediction
 
-            probs = combo.get_log_prob(q, u)
+            probs = combo.get_prob(q, u)
             
             if combo.data_key not in evt_probs:
                 evt_probs[combo.data_key] = np.zeros(len(combo.data))
