@@ -73,7 +73,7 @@ class IXPEData:
         # Could not find the file. Print out diagnostic information
         for (prepath, reason) in zip(DATA_DIRECTORIES, reasons):
             logger.warning(f"Checking {prepath}: {reason[1]}")
-        raise Exception(f"Could not find any observations with ID {obs_id}")
+        raise Exception(f"Could not find any observations with ID {obs_id} with level 2 directory {event_dir}.")
     
     def load_all_detectors_with_path(prepath, obs_id=None, event_dir="event_l2"):
         '''

@@ -1,6 +1,5 @@
 import numpy as np
 import logging
-from astropy.io import fits
 from . import spectral_weights
 from ..source import Source
 from ..ixpe_data import IXPE_PIXEL_SIZE
