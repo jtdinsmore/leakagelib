@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import corner
+from scipy.optimize import minimize
 
 def _get_constraint_probs(samples, constraint, fit_data):
     SIGMA = 0.01
@@ -57,6 +58,15 @@ class FitResult:
         self.dof = np.sum(list(counts.values())) - fit_data.length()
 
         self.get_uncertainty_information(best_params, cov)
+
+        at_bounds = False
+        for name in self.source_names:
+            if ("q", name) in self.params and ("u", name) in self.params:
+                pd = np.sqrt(self.params[("q", name)]**2 + self.params[("u", name)]**2)
+                if 1 - pd < 1e-5:
+                    at_bounds = True
+        if at_bounds:
+            self.message = "Warning: some parameters are at their bounds. Uncertainties may not be correctly estimated."
 
     def get_uncertainty_information(self, best_params, cov):
         self.params = {}
@@ -152,14 +162,16 @@ class FitResult:
         ax.set_xlabel("Iteration")
         return fig
 
-    def get_pd_pa(self, tag="src"):
+    def get_pd_pa(self, tag="src", method="mle"):
         """
-        Get the polarization degree and polarization angle for a source
+        Get the polarization degree and polarization angle for a source, and uncertainties
 
         Parameters
         ----------
         tag : str, optional
             Name of the source
+        method: str, optional
+            Either "mle" (Default) which finds the maximum likelihood estimate PD = sqrt(Q^2 + U^2), or "bayes" which gives the mode of the Bayesian posterior with a 1/PD prior. Uncertainties are linearly propagated from the Q and U uncertainties.
 
         Returns
         -------
@@ -174,10 +186,26 @@ class FitResult:
         u = self.params[("u",tag)]
         q_unc2 = self.cov[q_index,q_index]
         u_unc2 = self.cov[u_index,u_index]
-        pd = np.sqrt(q**2 + u**2)
         pa = np.arctan2(u, q)/2
-        pd_unc = np.sqrt(q**2 * q_unc2 + u**2 * u_unc2) / pd
+        pd = np.sqrt(q**2 + u**2)
         pa_unc = np.sqrt(q**2 * u_unc2 + u**2 * q_unc2) / pd**2 / 2
+        pd_unc = np.sqrt(q**2 * q_unc2 + u**2 * u_unc2) / pd
+        
+        if method == "mle":
+            return pd, pa, pd_unc, pa_unc
+
+        elif method == "bayes":
+            if pd_unc < pd/2:
+                old_pd = pd
+                pd = (pd + np.sqrt(pd**2 - 4*pd_unc**2)) / 2
+                pd_unc *= pd / (2*pd - old_pd)
+            else:
+                pd = 0
+                pd_unc = np.nan
+
+        else:
+            raise Exception(f"Method {method} was not recognized")
+        
         return pd, pa, pd_unc, pa_unc
 
     def __str__(self):
