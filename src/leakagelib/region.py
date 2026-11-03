@@ -17,6 +17,7 @@ def stretch_image(text):
             args = [float(a) for a in args]
             scaled_args = [a * IXPE_PIXEL_SIZE / REGION_PIXEL for a in args]
             if "box" in line or "ellipse" in line:
+                # The last argument is an angle, so do not stretch it
                 scaled_args[-1] = args[-1]
             line = line[:start_index] + ','.join([str(a) for a in scaled_args]) + line[end_index:]
         output_text += line + '\n'
@@ -44,27 +45,40 @@ class Region:
             self.fmt = "image"
             text = stretch_image(text)
         if assert_format is not None and assert_format != self.fmt:
-            raise Exception(f"The region {filename} was supposed to be in {assert_format} but it was actually in {self.fmt} format. Please change it.")
-        text = self.fmt + ";\n" + text
+            raise Exception(f"The region {filename} was supposed to be in {assert_format} but it was actually in {self.fmt} format.")
 
-        # Load the region
-        regions = Regions.parse(text, format="ds9")
-        self.regions = regions
-        self.region = regions[0]
-        for reg in regions:
-            self.region &= reg
+        self.region = None
+        center = None
+        for line in text.split('\n'):
+            if line == "": continue
+            initial_characeter = line[0] if line[0] in ["+", "*", "-", "!"] else ""
+            if self.region is None and initial_characeter in ["+", "*", "-"]:
+                raise Exception(f"Your region file starts with the invalid character {initial_character}")
+            if self.region is not None and initial_characeter not in ["+", "*", "-"]:
+                raise Exception(f"Additional regions in your region file must start with +, *, or -")
+            
+            text = self.fmt + ";\n" + line[len(initial_characeter):]
+            region = Regions.parse(text, format="ds9")[0]
+            if initial_characeter == "!":
+                region = ~region
+            if center is None:
+                if hasattr(region, "center"):
+                    center = region.center
+                elif hasattr(region, "vertices"):
+                    center = region.vertices[0]
+
+            if self.region is None:
+                self.region = region
+            else:
+                if initial_characeter == "+":
+                    self.region |= region
+                elif initial_character == "-":
+                    self.region &= ~region
+                elif initial_character == "*":
+                    self.region &= region
 
         # Get a tan projection to use sky coordinates
         if self.fmt == "fk5":
-            # Get the center of the region
-            try:
-                center = reg.center
-            except Exception:
-                # fallback: average vertices if no analytic center
-                for r in regions:
-                    if hasattr(r, "vertices"):
-                        center = r.vertices[0]
-                        break
             pixel_size = REGION_PIXEL / 3600 # degrees
             radius = 16/60
             npix = int(2*radius / pixel_size)

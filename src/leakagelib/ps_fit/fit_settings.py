@@ -1,6 +1,5 @@
 import numpy as np
 import logging
-from astropy.io import fits
 from . import spectral_weights
 from ..source import Source
 from ..ixpe_data import IXPE_PIXEL_SIZE
@@ -460,7 +459,7 @@ class FitSettings:
 
     def fit_psf_sigma(self):
         """
-        Fit a blur parameter, which is a Gaussian with sigma equal to blur convolved with the PSF to better match the image.
+        Fit a blur parameter, which is a Gaussian with sigma equal to blur convolved with the PSF to better match the image. If an ROI is already created, this region will be and-ed with the existing ROI (that is, the final ROI will be the pixels which were already inside the previous ROI AND satisfy this region constraint).
         """
         self.fixed_blur = None
 
@@ -472,7 +471,7 @@ class FitSettings:
 
     def apply_roi(self, roi_image, obs_id=None, det=None):
         """
-        Provide the region of interest (ROI) to the fitter after data has been cut.
+        Apply a region of interest (ROI) image to the fitter
 
         Parameters
         ----------
@@ -500,10 +499,12 @@ class FitSettings:
 
     def apply_circular_roi(self, radius, obs_id=None, det=None):
         """
-        Provide a circular ROI centered on the origin (radius in arcseconds).
+        Apply a circular region of interest (ROI) centered on the origin to the fitter. If an ROI is already created, this region will be and-ed with the existing ROI (that is, the final ROI will be the pixels which were already inside the previous ROI AND satisfy this region constraint).
 
         Parameters
         ----------
+        radius : float
+            Radius in arcseconds
         obs_id : str (optional)
             Observation ids to apply the ROI to. If not provided, the ROI will be applied to all observation IDs.
         det : int (optional)
@@ -521,9 +522,9 @@ class FitSettings:
         roi_image = xs**2 + ys**2 < radius**2
         self.apply_roi(roi_image, obs_id, det)
 
-    def apply_roi_cut(self, region, exclude=False, obs_id=None, det=None):
+    def apply_region_roi(self, region, exclude=False, obs_id=None, det=None):
         """
-        Apply a region to the ROI. If the ROI is already created, this region will be and-ed with the existing ROI (that is, the final ROI will be the pixels which were already inside the previous ROI AND satisfy this region constraint).
+        Apply a region region of interest (ROI) to the fitter. If an ROI is already created, this region will be and-ed with the existing ROI (that is, the final ROI will be the pixels which were already inside the previous ROI AND satisfy this region constraint).
 
         Parameters
         ----------

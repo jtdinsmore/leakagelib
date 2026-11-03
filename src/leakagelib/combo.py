@@ -67,15 +67,16 @@ class PSFSourceCombo:
         self.fit_prepared = True
         self.data_key = (self.data.obs_id, self.data.det)
 
-    def get_log_prob(self, q, u):
+    def get_prob(self, q, u):
+        self.polarize_net((np.mean(q), np.mean(u))) # If the qs and us are arrays, use the mean for the sake of leakage prediction
+
         probs = np.ones(len(self.data.evt_xs), float)
 
+        # Polarization weights (no need for the 1/(2pi))
         if self.particles:
-            # Polarization weights (no need for the 1/2pi)
             probs += 0.5 * (self.data.evt_qs*q + self.data.evt_us*u) # No modulation factor included
             probs *= self.clipped_chars / (1 - self.clipped_chars)
         else:
-            # Polarization weights (no need for the 1/2pi)
             probs += 0.5 * self.evt_mus * (self.data.evt_qs*q + self.data.evt_us*u)
 
         # Spatial weights

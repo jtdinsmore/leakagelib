@@ -49,7 +49,7 @@ class FitProperties:
 
     def finalize_fit_settings(fit_settings):
         # Set particle spectra
-        if np.any([w is not None for w in fit_settings.spectral_weights]):
+        if np.any([w is not None for w in fit_settings.spectral_weights.values()]):
             for name in fit_settings.particles:
                 if fit_settings.spectral_weights[name] is not None: continue
                 if fit_settings.particles[name]:
@@ -96,7 +96,7 @@ class FitProperties:
                 if fit_settings.spectral_mus[name] is not None:
                     fit_settings.spectral_mus[name][data_index] = fit_settings.spectral_mus[name][data_index][~cut_mask]
                 if fit_settings.sweeps[name] is not None:
-                    fit_settings.sweeps[name][data_index] = fit_settings.sweeps[name][data_index][~cut_mask]
+                    fit_settings.sweeps[name][data_index] = fit_settings.sweeps[name][data_index][:,~cut_mask]
 
         if total_cut > 0:
             logger.warning(f"{total_cut} events were cut for being outside the region of interest.")

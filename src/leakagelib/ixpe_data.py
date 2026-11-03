@@ -32,7 +32,7 @@ class IXPEData:
 
     Event fields
     ------------
-    evt_xs, evt_ys, evt_qs, evt_us, evt_energies, evt_pis, evt_times, evt_ws, evt_mus, evt_bg_chars, evt_exposures : array-like
+    evt_xs, evt_ys, evt_qs, evt_us, evt_energies, evt_pis, evt_times, evt_ws, evt_mus, evt_bg_chars, evt_exposures, evt_vigns : array-like
         Properties of the individual events. **Positions are measured in arcseconds**. q and u are the IXPE-standard 2cos(psi) and 2sin(psi). Energies are measured in keV. Times are measured in seconds since MJDREF. To retain events, use the :meth:`leakagelib.IXPEData.retain` or :meth:`leakagelib.IXPEData.retain_region` methods.
         
 
@@ -73,7 +73,7 @@ class IXPEData:
         # Could not find the file. Print out diagnostic information
         for (prepath, reason) in zip(DATA_DIRECTORIES, reasons):
             logger.warning(f"Checking {prepath}: {reason[1]}")
-        raise Exception(f"Could not find any observations with ID {obs_id}")
+        raise Exception(f"Could not find any observations with ID {obs_id} with level 2 directory {event_dir}.")
     
     def load_all_detectors_with_path(prepath, obs_id=None, event_dir="event_l2"):
         '''
@@ -108,9 +108,9 @@ class IXPEData:
             hk_directory = f"{prepath}/hk"
 
         if not os.path.exists(event_directory):
-            raise Exception("Event directory not found")
+            raise Exception(f"Event directory {event_directory} not found")
         if not os.path.exists(hk_directory):
-            raise Exception("HK directory not found")
+            raise Exception(f"HK directory {hk_directory} not found")
 
         hks = [None, None, None]
         for f in os.listdir(hk_directory):

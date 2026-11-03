@@ -24,3 +24,4 @@ For details and examples, please see the "Polarization fitting" and "Leakage Pre
    faq
    leakagelib
    leakagelib_bkg
+   leakagelib_cxo
